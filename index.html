@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WITH — IBM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@200;300;400;500&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ibm-blue: #0F62FE;
+    --white: #FFFFFF;
+    --plex-sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --plex-serif: 'IBM Plex Serif', Georgia, serif;
+    --plex-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: var(--ibm-blue);
+    color: var(--white);
+    font-family: var(--plex-sans);
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .composition {
+    position: relative;
+    width: min(100vw, 100vh);
+    height: min(100vw, 100vh);
+    max-width: 1080px;
+    max-height: 1080px;
+  }
+
+  svg.scene {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .ibm-handle {
+    cursor: grab;
+    touch-action: none;
+  }
+  .ibm-handle.dragging { cursor: grabbing; }
+
+  /* Caption + UI overlays positioned in % so they scale with composition */
+  .caption {
+    position: absolute;
+    bottom: 9%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--plex-sans);
+    font-size: clamp(14px, 2.1vmin, 26px);
+    font-weight: 400;
+    letter-spacing: 0.005em;
+    color: var(--white);
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 600ms ease 800ms;
+  }
+  .caption.shown { opacity: 1; }
+  .caption em {
+    font-family: var(--plex-serif);
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  .upload {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 320ms ease;
+  }
+  .upload.visible { opacity: 1; pointer-events: auto; }
+  .upload button {
+    appearance: none;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.35);
+    color: rgba(255,255,255,0.78);
+    font-family: var(--plex-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+  }
+  .upload button:hover {
+    color: var(--white);
+    border-color: var(--white);
+    background: rgba(255,255,255,0.06);
+  }
+  .upload .clear {
+    padding: 8px 10px;
+  }
+  .upload button:disabled {
+    cursor: default;
+    color: rgba(255,255,255,0.4);
+    border-color: rgba(255,255,255,0.18);
+  }
+  .upload button:disabled:hover {
+    color: rgba(255,255,255,0.4);
+    border-color: rgba(255,255,255,0.18);
+    background: transparent;
+  }
+  .upload-count {
+    margin-left: 6px;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+  }
+  .upload .hand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+  .upload .hand svg { width: 14px; height: 14px; }
+  .upload .hand .hand-label { letter-spacing: 0.18em; }
+  .upload .hand.active {
+    color: var(--ibm-blue);
+    background: var(--white);
+    border-color: var(--white);
+  }
+  .upload .hand.active:hover {
+    color: var(--ibm-blue);
+    background: var(--white);
+  }
+  .upload .hand.loading { opacity: 0.6; pointer-events: none; }
+
+  .camera-preview {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    width: 200px;
+    height: 150px;
+    border-radius: 12px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 320ms ease, transform 320ms cubic-bezier(.2,.8,.2,1);
+    border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(0,0,0,0.25);
+  }
+  .camera-preview.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .camera-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transform: scaleX(-1); /* mirror so movement matches user's POV */
+  }
+  .pinch-dot {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--white);
+    box-shadow: 0 0 0 3px rgba(15,98,254,0.6);
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 120ms ease;
+    pointer-events: none;
+    left: 0; top: 0;
+  }
+  .pinch-dot.active { transform: translate(-50%, -50%) scale(1); }
+
+  .reset {
+    position: absolute;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.78);
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 320ms ease, color 180ms ease, background 180ms ease;
+  }
+  .reset.visible { opacity: 1; pointer-events: auto; }
+  .reset:hover {
+    color: var(--white);
+    background: rgba(255,255,255,0.06);
+  }
+  .reset:active .reset-icon { transform: rotate(-180deg); }
+  .reset-icon {
+    width: 14px;
+    height: 14px;
+    transition: transform 420ms cubic-bezier(.2,.8,.2,1);
+  }
+  .reset-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    transform: rotate(-90deg);
+  }
+  .reset-ring circle { fill: none; stroke-width: 1.4; }
+  .reset-ring .track { stroke: rgba(255,255,255,0.18); }
+  .reset-ring .progress {
+    stroke: rgba(255,255,255,0.7);
+    stroke-linecap: round;
+    /* circumference for r=18 ≈ 113.1 */
+    stroke-dasharray: 113.1;
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 220ms linear;
+  }
+  .reset.visible .reset-ring .progress {
+    stroke-dashoffset: 113.1;
+    transition: stroke-dashoffset 5000ms linear;
+  }
+
+  .hint {
+    position: absolute;
+    top: calc(50% + 9%);
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--plex-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+    transition: opacity 600ms ease;
+    pointer-events: none;
+    opacity: 0;
+  }
+  .hint.shown { opacity: 1; }
+  .hint.gone { opacity: 0; }
+
+  .corner-tag {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    font-family: var(--plex-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="composition" id="composition">
+    <svg class="scene" id="scene" viewBox="0 0 1080 1080" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>
+        <clipPath id="capsule-clip">
+          <rect id="capsule-clip-rect" x="0" y="0" width="0" height="0" rx="0" ry="0" />
+        </clipPath>
+      </defs>
+
+      <!-- Caption text inside SVG so it scales with the composition -->
+      <g id="caption-svg" opacity="0">
+        <text x="540" y="980" text-anchor="middle" font-family="IBM Plex Sans" font-weight="400" font-size="28" fill="white">
+          Let&#x2019;s create&#160;<tspan font-family="IBM Plex Serif" font-style="italic">smarter business</tspan>.
+        </text>
+      </g>
+
+      <!-- WITH text. Right edge anchored to MEET_X (computed at runtime). -->
+      <g id="with-mark" transform="translate(0,0)" opacity="1">
+        <text id="with-text" x="540" y="540" text-anchor="end" dominant-baseline="middle"
+              font-family="IBM Plex Sans" font-weight="200" font-size="150"
+              letter-spacing="-1.5" fill="white">WITH</text>
+      </g>
+
+      <!-- Middle mark group, will be redrawn each frame based on dragX + variant -->
+      <g id="middle-mark"></g>
+
+      <!-- IBM logo. Left edge anchored to MEET_X (computed at runtime). -->
+      <!-- Source path is 800 x 322. Inner transform: translate(MEET_X, midline-h/2) scale(s) -->
+      <g id="ibm-mark" class="ibm-handle" transform="translate(0,0)" opacity="0">
+        <!-- Invisible hit area covering the full IBM bounding box so the
+             whole logo footprint is draggable, not just the white stripes. -->
+        <rect id="ibm-hit" x="0" y="0" width="0" height="0" fill="transparent" pointer-events="all" />
+        <g id="ibm-inner" transform="translate(540, 499) scale(0.255)">
+          <path fill="white" d="M 0,0 L 0,22.0625 L 155.71875,22.0625 L 155.71875,0 L 0,0 z M 177.78125,0 L 177.78125,22.0625 L 399.6875,22.0625 C 399.68749,22.06251 377.021,0 347,0 L 177.78125,0 z M 443.21875,0 L 443.21875,22.0625 L 577.46875,22.0625 L 569.5,0 L 443.21875,0 z M 673.71875,0 L 665.75,22.0625 L 798.78125,22.0625 L 798.78125,0 L 673.71875,0 z M 0,42.90625 L 0,64.96875 L 155.71875,64.96875 L 155.71875,42.90625 L 0,42.90625 z M 177.78125,42.9375 L 177.78125,64.96875 L 425.4375,64.96875 C 425.4375,64.96876 422.545,47.9885 417.5,42.9375 L 177.78125,42.9375 z M 443.21875,42.9375 L 443.21875,64.96875 L 592.1875,64.96875 L 584.8125,42.9375 L 443.21875,42.9375 z M 657.78125,42.9375 L 650.40625,64.96875 L 798.78125,64.96875 L 798.78125,42.9375 L 657.78125,42.9375 z M 44.75,85.8125 L 44.75,107.90625 L 112.1875,107.90625 L 112.1875,85.8125 L 44.75,85.8125 z M 222.53125,85.8125 L 222.53125,107.90625 L 289.96875,107.90625 L 289.96875,85.8125 L 222.53125,85.8125 z M 355.5625,85.8125 L 355.5625,107.90625 L 423,107.90625 C 423.00001,107.90625 427.28125,96.2385 427.28125,85.8125 L 355.5625,85.8125 z M 487.96875,85.8125 L 487.96875,107.90625 L 607.53125,107.90625 L 599.5625,85.8125 L 487.96875,85.8125 z M 643.09375,85.8125 L 635.09375,107.90625 L 755.25,107.90625 L 755.25,85.8125 L 643.09375,85.8125 z M 44.75,128.75 L 44.75,150.8125 L 112.1875,150.8125 L 112.1875,128.75 L 44.75,128.75 z M 222.53125,128.75 L 222.53125,150.8125 L 394.78125,150.8125 C 394.78126,150.81249 409.19025,139.492 413.78125,128.75 L 222.53125,128.75 z M 487.96875,128.75 L 487.96875,150.8125 L 555.40625,150.8125 L 555.40625,138.53125 L 559.6875,150.8125 L 683.21875,150.8125 L 687.8125,138.53125 L 687.8125,150.8125 L 755.25,150.8125 L 755.25,128.75 L 628.65625,128.75 L 621.9375,147.4375 L 615.1875,128.75 L 487.96875,128.75 z M 44.75,171.65625 L 44.75,193.71875 L 112.1875,193.71875 L 112.1875,171.65625 L 44.75,171.65625 z M 222.53125,171.65625 L 222.53125,193.71875 L 413.78125,193.71875 C 409.18926,183.01175 394.78125,171.65625 394.78125,171.65625 L 222.53125,171.65625 z M 487.96875,171.65625 L 487.96875,193.71875 L 555.40625,193.71875 L 555.40625,171.65625 L 487.96875,171.65625 z M 567.65625,171.65625 L 575.8125,193.71875 L 668.4375,193.71875 L 676.1875,171.65625 L 567.65625,171.65625 z M 687.8125,171.65625 L 687.8125,193.71875 L 755.25,193.71875 L 755.25,171.65625 L 687.8125,171.65625 z M 44.75,214.5625 L 44.75,236.625 L 112.1875,236.625 L 112.1875,214.5625 L 44.75,214.5625 z M 222.53125,214.5625 L 222.53125,236.625 L 289.96875,236.625 L 289.96875,214.5625 L 222.53125,214.5625 z M 355.5625,214.5625 L 355.5625,236.625 L 427.28125,236.625 C 427.28126,226.21301 423,214.5625 423,214.5625 L 355.5625,214.5625 z M 487.96875,214.5625 L 487.96875,236.625 L 555.40625,236.625 L 555.40625,214.5625 L 487.96875,214.5625 z M 582.96875,214.5625 L 590.875,236.625 L 652.96875,236.625 L 660.9375,214.5625 L 582.96875,214.5625 z M 687.8125,214.5625 L 687.8125,236.625 L 755.25,236.625 L 755.25,214.5625 L 687.8125,214.5625 z M 1.21875,257.46875 L 1.21875,279.5625 L 156.9375,279.5625 L 156.9375,257.46875 L 1.21875,257.46875 z M 177.78125,257.46875 L 177.78125,279.5625 L 417.5,279.5625 C 422.545,274.5035 425.4375,257.46875 425.4375,257.46875 L 177.78125,257.46875 z M 444.4375,257.46875 L 444.4375,279.5625 L 555.40625,279.5625 L 555.40625,257.46875 L 444.4375,257.46875 z M 598.3125,257.46875 L 606.4375,279.5625 L 638.03125,279.5625 L 645.65625,257.46875 L 598.3125,257.46875 z M 687.8125,257.46875 L 687.8125,279.5625 L 800,279.5625 L 800,257.46875 L 687.8125,257.46875 z M 1.21875,300.40625 L 1.21875,322.46875 L 156.9375,322.46875 L 156.9375,300.40625 L 1.21875,300.40625 z M 177.78125,300.40625 L 177.78125,322.4375 L 347,322.4375 C 377.02099,322.43749 399.6875,300.40625 399.6875,300.40625 L 177.78125,300.40625 z M 444.4375,300.40625 L 444.4375,322.46875 L 555.40625,322.46875 L 555.40625,300.40625 L 444.4375,300.40625 z M 613.71875,300.40625 L 621.53125,322.40625 L 622.875,322.4375 L 630.8125,300.40625 L 613.71875,300.40625 z M 687.8125,300.40625 L 687.8125,322.46875 L 800,322.46875 L 800,300.40625 L 687.8125,300.40625 z" />
+        </g>
+      </g>
+    </svg>
+
+    <div class="corner-tag">WITH — IBM · concept demo</div>
+    <div class="hint" id="hint">drag&nbsp;&nbsp;→</div>
+
+    <div class="upload" id="upload">
+      <button id="handBtn" class="hand" type="button" aria-label="Hand control mode" title="Hand control">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 11V6a1.5 1.5 0 1 1 3 0v5"/>
+          <path d="M12 11V4.5a1.5 1.5 0 1 1 3 0V11"/>
+          <path d="M15 11V6a1.5 1.5 0 1 1 3 0v8a6 6 0 0 1-6 6h-1.5a4.5 4.5 0 0 1-4.5-4.5V11a1.5 1.5 0 0 1 3 0"/>
+        </svg>
+        <span class="hand-label">HAND</span>
+      </button>
+      <button id="uploadBtn" type="button">+ Add image / video <span class="upload-count" id="uploadCount">0/10</span></button>
+      <button id="clearBtn" class="clear" type="button" hidden aria-label="Clear all media">×</button>
+    </div>
+    <div class="camera-preview" id="cameraPreview" aria-hidden="true">
+      <video id="cameraVideo" playsinline muted></video>
+      <div class="pinch-dot" id="pinchDot"></div>
+    </div>
+    <button class="reset" id="resetBtn" type="button" aria-label="Reset">
+      <svg class="reset-ring" viewBox="0 0 40 40" aria-hidden="true">
+        <circle class="track" cx="20" cy="20" r="18"/>
+        <circle class="progress" cx="20" cy="20" r="18"/>
+      </svg>
+      <svg class="reset-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 3-6.7"/>
+        <polyline points="3 3 3 9 9 9"/>
+      </svg>
+    </button>
+    <input type="file" id="fileInput" accept="image/*,video/mp4,video/quicktime" multiple hidden />
+  </div>
+</div>
+
+<script>
+(() => {
+  // --- DOM refs ----------------------------------------------------------
+  const scene = document.getElementById('scene');
+  const withMark = document.getElementById('with-mark');
+  const ibmMark = document.getElementById('ibm-mark');
+  const middleMark = document.getElementById('middle-mark');
+  const captionSvg = document.getElementById('caption-svg');
+  const hint = document.getElementById('hint');
+  const upload = document.getElementById('upload');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const uploadCount = document.getElementById('uploadCount');
+  const clearBtn = document.getElementById('clearBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const handBtn = document.getElementById('handBtn');
+  const cameraPreview = document.getElementById('cameraPreview');
+  const cameraVideo = document.getElementById('cameraVideo');
+  const pinchDot = document.getElementById('pinchDot');
+  const fileInput = document.getElementById('fileInput');
+  const MAX_MEDIA = 10;
+  const composition = document.getElementById('composition');
+  const capsuleClipRect = document.getElementById('capsule-clip-rect');
+
+  // --- Constants ---------------------------------------------------------
+  // Logical (SVG-viewBox) coordinates. Scene is 1080x1080.
+  const VB = 1080;
+  const SCENE_CENTER = 540;
+  const MIDLINE_Y = 540;
+  const FONT_SIZE = 150;
+  // IBM Plex Sans cap-height ratio (≈ 0.698 of font-size). We scale the IBM
+  // logo so its rendered height matches WITH's cap-height — letting WITH and
+  // IBM read as the same height visually.
+  const PLEX_CAP_RATIO = 0.698;
+  let IBM_SCALE = (FONT_SIZE * PLEX_CAP_RATIO) / 322;     // updated in layoutCluster()
+  let IBM_LOGO_W = 800 * IBM_SCALE;
+  let IBM_LOGO_H = 322 * IBM_SCALE;
+  // MEET_X is the x at which WITH's right edge meets IBM's left edge at rest.
+  // Computed at runtime so the cluster (WITH+IBM) is visually centered.
+  let MEET_X = SCENE_CENTER;
+  // At dragX=1 (final): each shifts outward by MAX_OFFSET.
+  // Computed dynamically in layoutCluster() so WITH/IBM never get clipped
+  // by the composition edges. SAFE_MARGIN is the room kept clear on each side.
+  let MAX_OFFSET = 240;
+  const SAFE_MARGIN = 10;
+  const THRESHOLD = 0.5;             // dragX >= this on release => go final
+  const AUTO_RESET_MS = 5000;        // matches reset-ring drain duration in CSS
+  const SPRING = { stiffness: 180, damping: 22, mass: 1 };
+  const FINAL_SPRING = { stiffness: 140, damping: 24, mass: 1 };
+  const VARIANTS = ['thin', 'capsule', 'circles', 'waveform'];
+
+  // --- State -------------------------------------------------------------
+  const state = {
+    mode: 'idle',         // 'idle' | 'intro' | 'rest' | 'dragging' | 'returning' | 'final' | 'final-return'
+    dragX: 0,
+    target: 0,
+    velocity: 0,
+    pointerId: null,
+    pointerStartX: 0,
+    pointerStartDragX: 0,
+    currentVariant: 'thin',
+    previousVariant: null,
+    uploadedMedia: [],     // Array<{ type:'image'|'video', src, el?:HTMLVideoElement }>, up to MAX_MEDIA
+    activeMediaIndex: -1,  // index in uploadedMedia picked for this drag (-1 = none)
+    hasInteracted: false,
+    handMode: false,
+    handPinching: false,
+    handStartX: 0,         // normalized [0..1] hand x at pinch start
+    handStartDragX: 0,
+  };
+
+  // --- Math helpers ------------------------------------------------------
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+  // Tiny seeded RNG so waveform looks consistent through a single run
+  let seed = 1;
+  const rand = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+  const seededRand = (s) => {
+    let x = Math.sin(s) * 10000;
+    return x - Math.floor(x);
+  };
+
+  // --- Geometry helpers --------------------------------------------------
+  // Right edge of WITH (in scene coords) given dragX
+  const withRight = (dragX) => MEET_X - dragX * MAX_OFFSET;
+  // Left edge of IBM
+  const ibmLeft = (dragX) => MEET_X + dragX * MAX_OFFSET;
+  // Gap width between WITH and IBM
+  const gap = (dragX) => Math.max(0, ibmLeft(dragX) - withRight(dragX));
+
+  // --- SVG node helpers --------------------------------------------------
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+  const svg = (tag, attrs = {}, children = []) => {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) {
+      if (attrs[k] != null) el.setAttribute(k, attrs[k]);
+    }
+    children.forEach(c => el.appendChild(c));
+    return el;
+  };
+
+  // --- Variant renderers -------------------------------------------------
+  // Each renderer takes (group, dragX) and rebuilds children.
+  const variants = {
+    thin(g, dragX) {
+      const w = gap(dragX);
+      const h = 10;
+      const x = withRight(dragX);
+      const y = MIDLINE_Y - h / 2;
+      g.appendChild(svg('rect', {
+        x, y, width: w, height: h,
+        rx: h / 2, ry: h / 2, fill: 'white',
+      }));
+    },
+
+    capsule(g, dragX) {
+      const w = Math.max(0, gap(dragX));
+      const h = IBM_LOGO_H;
+      const x = withRight(dragX);
+      const y = MIDLINE_Y - h / 2;
+      const rx = h / 2;
+
+      // Update clip rect (used by media)
+      capsuleClipRect.setAttribute('x', x);
+      capsuleClipRect.setAttribute('y', y);
+      capsuleClipRect.setAttribute('width', w);
+      capsuleClipRect.setAttribute('height', h);
+      capsuleClipRect.setAttribute('rx', rx);
+      capsuleClipRect.setAttribute('ry', rx);
+
+      // Base capsule
+      g.appendChild(svg('rect', {
+        x, y, width: w, height: h,
+        rx, ry: rx, fill: 'white',
+      }));
+
+      // Media inside, clipped (one of up to MAX_MEDIA, randomized per drag)
+      const m = state.activeMediaIndex >= 0 ? state.uploadedMedia[state.activeMediaIndex] : null;
+      if (m && w > 4) {
+        if (m.type === 'image') {
+          g.appendChild(svg('image', {
+            href: m.src,
+            x, y, width: w, height: h,
+            preserveAspectRatio: 'xMidYMid slice',
+            'clip-path': 'url(#capsule-clip)',
+          }));
+        } else if (m.type === 'video') {
+          // foreignObject lets us embed an HTML video element
+          const fo = svg('foreignObject', {
+            x, y, width: w, height: h,
+            'clip-path': 'url(#capsule-clip)',
+          });
+          // Reuse the same <video> element across frames so it keeps playing
+          if (!m.el) {
+            const v = document.createElementNS(XHTML_NS, 'video');
+            v.src = m.src;
+            v.autoplay = true;
+            v.loop = true;
+            v.muted = true;
+            v.playsInline = true;
+            v.setAttribute('playsinline', '');
+            v.style.width = '100%';
+            v.style.height = '100%';
+            v.style.objectFit = 'cover';
+            v.style.display = 'block';
+            m.el = v;
+            v.play().catch(() => {});
+          }
+          fo.appendChild(m.el);
+          g.appendChild(fo);
+        }
+      }
+    },
+
+    circles(g, dragX) {
+      // Circles never cross WITH or IBM edges. Each circle's radius is
+      // bounded by the distance to the nearest edge AND by the cluster
+      // height, then scaled by a seeded fraction.
+      const COUNT = 12;
+      const w = gap(dragX);
+      if (w < 4) return;
+      const x0 = withRight(dragX);
+      const x1 = ibmLeft(dragX);
+      const maxVerticalR = IBM_LOGO_H / 2;
+      if (!variants._circleSeeds) {
+        variants._circleSeeds = [0.62, 0.18, 0.31, 0.74, 0.27, 0.89, 0.43, 0.55, 0.12, 0.81, 0.38, 0.96];
+      }
+      const seeds = variants._circleSeeds;
+
+      for (let i = 0; i < COUNT; i++) {
+        const t = (i + 0.5) / COUNT;
+        const appearAt = i / (COUNT * 1.6);
+        if (dragX < appearAt) continue;
+        const localT = clamp((dragX - appearAt) / (1 - appearAt), 0, 1);
+        const cx = x0 + t * w;
+        const cy = MIDLINE_Y;
+        // Hard cap by edges so the circle never overlaps WITH or IBM.
+        const maxR = Math.min(cx - x0, x1 - cx, maxVerticalR);
+        if (maxR < 1) continue;
+        // Each circle gets a seeded fraction [0.4..1.0] of its max radius.
+        const frac = 0.4 + 0.6 * seeds[i];
+        const r = maxR * frac * easeOutCubic(localT);
+        if (r < 1) continue;
+        g.appendChild(svg('circle', { cx, cy, r, fill: 'white' }));
+      }
+    },
+
+    waveform(g, dragX) {
+      const COUNT = 56;
+      const w = gap(dragX);
+      const x0 = withRight(dragX);
+      if (w < 4) return;
+      const stride = w / COUNT;
+      const barW = Math.max(2, stride * 0.45);
+      // Envelope: sine + noise so it reads as audio waveform
+      for (let i = 0; i < COUNT; i++) {
+        const t = (i + 0.5) / COUNT;
+        const appearAt = i / (COUNT * 1.4);
+        if (dragX < appearAt) continue;
+        const localT = clamp((dragX - appearAt) / (1 - appearAt), 0, 1);
+        // Bell-shape envelope (taller in middle), modulated by noise.
+        // Bar heights stay within the cluster (IBM_LOGO_H tall, midline-centered).
+        const envelope = Math.sin(t * Math.PI);
+        const noise = 0.55 + 0.45 * seededRand(i * 13.37);
+        const fineNoise = 0.7 + 0.3 * seededRand(i * 7.91 + 1);
+        const h = IBM_LOGO_H * (0.18 + 0.78 * envelope * noise * fineNoise) * easeOutCubic(localT);
+        const cx = x0 + t * w;
+        g.appendChild(svg('rect', {
+          x: cx - barW / 2,
+          y: MIDLINE_Y - h / 2,
+          width: barW,
+          height: h,
+          rx: barW / 2,
+          ry: barW / 2,
+          fill: 'white',
+        }));
+      }
+    },
+  };
+
+  // --- Render ------------------------------------------------------------
+  const render = () => {
+    const offsetPx = state.dragX * MAX_OFFSET;
+    withMark.setAttribute('transform', `translate(${-offsetPx}, 0)`);
+    ibmMark.setAttribute('transform', `translate(${offsetPx}, 0)`);
+
+    // Wipe and redraw middle mark
+    while (middleMark.firstChild) middleMark.removeChild(middleMark.firstChild);
+    const renderer = variants[state.currentVariant] || variants.thin;
+    renderer(middleMark, state.dragX);
+
+    // Upload always visible after intro so a preloaded image/video can pop
+    // into the capsule when randomly selected.
+    const afterIntro = state.mode !== 'idle' && state.mode !== 'intro';
+    upload.classList.toggle('visible', afterIntro);
+    clearBtn.hidden = state.uploadedMedia.length === 0;
+
+    // Reset button visible only when parked at final position.
+    resetBtn.classList.toggle('visible', state.mode === 'final');
+  };
+
+  // --- Spring loop -------------------------------------------------------
+  let lastTime = 0;
+  const tick = (now) => {
+    const dt = lastTime ? Math.min(0.05, (now - lastTime) / 1000) : 0;
+    lastTime = now;
+
+    if (state.mode === 'returning' || state.mode === 'final-return') {
+      const sp = SPRING;
+      const force = -sp.stiffness * (state.dragX - state.target);
+      const damp = -sp.damping * state.velocity;
+      const accel = (force + damp) / sp.mass;
+      state.velocity += accel * dt;
+      state.dragX += state.velocity * dt;
+      if (Math.abs(state.velocity) < 0.001 && Math.abs(state.dragX - state.target) < 0.0008) {
+        state.dragX = state.target;
+        state.velocity = 0;
+        state.mode = 'rest';
+      }
+    } else if (state.mode === 'final' && state.target === 1 && state.dragX < 1) {
+      // Spring up to 1 (briefer, smoother)
+      const sp = FINAL_SPRING;
+      const force = -sp.stiffness * (state.dragX - 1);
+      const damp = -sp.damping * state.velocity;
+      const accel = (force + damp) / sp.mass;
+      state.velocity += accel * dt;
+      state.dragX += state.velocity * dt;
+      if (Math.abs(state.velocity) < 0.002 && Math.abs(state.dragX - 1) < 0.0015) {
+        state.dragX = 1;
+        state.velocity = 0;
+      }
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  };
+
+  // --- Variant chooser ---------------------------------------------------
+  const pickNextVariant = () => {
+    const choices = VARIANTS.filter(v => v !== state.previousVariant);
+    const v = choices[Math.floor(Math.random() * choices.length)];
+    state.previousVariant = state.currentVariant;
+    state.currentVariant = v;
+
+    // For capsule, pick which uploaded media (if any) shows this round.
+    const previousActive = state.activeMediaIndex >= 0
+      ? state.uploadedMedia[state.activeMediaIndex] : null;
+    if (v === 'capsule' && state.uploadedMedia.length > 0) {
+      state.activeMediaIndex = Math.floor(Math.random() * state.uploadedMedia.length);
+    } else {
+      state.activeMediaIndex = -1;
+    }
+    const newActive = state.activeMediaIndex >= 0
+      ? state.uploadedMedia[state.activeMediaIndex] : null;
+    // Pause any video that was playing and isn't active now.
+    if (previousActive && previousActive !== newActive && previousActive.el) {
+      try { previousActive.el.pause(); } catch (_) {}
+    }
+    if (newActive?.el) {
+      try { newActive.el.play(); } catch (_) {}
+    }
+  };
+
+  // --- Drag --------------------------------------------------------------
+  const compositionWidthScreen = () => composition.getBoundingClientRect().width;
+  // Convert pointer dx (screen px) to dragX delta (logical units)
+  const pxToDragX = (dxScreen) => {
+    const ratio = compositionWidthScreen() / VB;
+    return dxScreen / (MAX_OFFSET * ratio);
+  };
+
+  const onPointerDown = (e) => {
+    if (state.mode !== 'rest' && state.mode !== 'returning') return;
+    if (state.pointerId !== null) return;
+
+    // If we were returning, snapshot current state
+    state.pointerId = e.pointerId;
+    state.pointerStartX = e.clientX;
+    state.pointerStartDragX = state.dragX;
+
+    if (!state.hasInteracted) {
+      state.hasInteracted = true;
+      hint.classList.add('gone');
+    }
+
+    // Pick a fresh variant for this drag (not the same as previous)
+    pickNextVariant();
+
+    state.mode = 'dragging';
+    state.velocity = 0;
+    ibmMark.classList.add('dragging');
+
+    try { ibmMark.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e) => {
+    if (state.mode !== 'dragging' || e.pointerId !== state.pointerId) return;
+    const dx = e.clientX - state.pointerStartX;
+    let next = state.pointerStartDragX + pxToDragX(dx);
+    // Clamp [0..1] with a gentle rubber-band overshoot that asymptotes at 1.06
+    // — guarantees the offset never exceeds what layoutCluster() reserved.
+    if (next < 0) next = 0;
+    if (next > 1) {
+      const o = next - 1;
+      next = 1 + 0.06 * (o / (o + 0.5));
+    }
+    state.dragX = next;
+  };
+
+  const onPointerUp = (e) => {
+    if (e.pointerId !== state.pointerId) return;
+    state.pointerId = null;
+    ibmMark.classList.remove('dragging');
+    try { ibmMark.releasePointerCapture(e.pointerId); } catch (_) {}
+
+    if (state.dragX >= THRESHOLD) {
+      state.mode = 'final';
+      state.target = 1;
+      state.velocity = Math.min(state.velocity, 4);
+      startAutoResetCountdown();
+    } else {
+      state.mode = 'returning';
+      state.target = 0;
+    }
+  };
+
+  let autoResetTimer = null;
+  const startAutoResetCountdown = () => {
+    clearTimeout(autoResetTimer);
+    autoResetTimer = setTimeout(() => resetToRest(), AUTO_RESET_MS);
+  };
+  const cancelAutoResetCountdown = () => {
+    clearTimeout(autoResetTimer);
+    autoResetTimer = null;
+  };
+
+  const resetToRest = () => {
+    if (state.mode !== 'final') return;
+    cancelAutoResetCountdown();
+    state.mode = 'final-return';
+    state.target = 0;
+    state.velocity = 0;
+  };
+  resetBtn.addEventListener('click', resetToRest);
+
+  // Third reset path: click outside the animation area while in final state.
+  composition.addEventListener('click', (e) => {
+    if (state.mode !== 'final') return;
+    const t = e.target;
+    if (t.closest('button, #ibm-mark, #with-mark, #middle-mark, .camera-preview')) return;
+    resetToRest();
+  });
+
+  ibmMark.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+
+  // --- Upload ------------------------------------------------------------
+  const updateUploadUI = () => {
+    const n = state.uploadedMedia.length;
+    uploadCount.textContent = `${n}/${MAX_MEDIA}`;
+    uploadBtn.disabled = n >= MAX_MEDIA;
+    clearBtn.hidden = n === 0;
+  };
+
+  const releaseMedia = (m) => {
+    if (m.el) { try { m.el.pause(); } catch (_) {} }
+    if (m.src && m.src.startsWith('blob:')) URL.revokeObjectURL(m.src);
+  };
+
+  uploadBtn.addEventListener('click', () => {
+    if (state.uploadedMedia.length >= MAX_MEDIA) return;
+    fileInput.click();
+  });
+
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.uploadedMedia.forEach(releaseMedia);
+    state.uploadedMedia = [];
+    state.activeMediaIndex = -1;
+    updateUploadUI();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    for (const file of files) {
+      if (state.uploadedMedia.length >= MAX_MEDIA) break;
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      if (!isVideo && !isImage) continue;
+      const url = URL.createObjectURL(file);
+      state.uploadedMedia.push({ type: isVideo ? 'video' : 'image', src: url });
+    }
+    fileInput.value = '';
+    updateUploadUI();
+  });
+
+  updateUploadUI();
+
+  // --- Hand tracking mode (MediaPipe Tasks Vision, lazy-loaded) ---------
+  // Pinch (thumb tip ↔ index tip close) = grab. Horizontal hand movement
+  // drives dragX. Hooks into the existing 'dragging' state machine so the
+  // same spring/threshold/final/reset logic applies as a mouse drag.
+  let handLandmarker = null;
+  let handStream = null;
+  let handFrameId = null;
+  let lastHandTimestamp = 0;
+  const PINCH_DOWN = 0.06;   // normalized distance to engage
+  const PINCH_UP = 0.10;     // disengage threshold (hysteresis)
+  const HAND_DRAG_SCALE = 2.5;  // hand range fraction × this = full drag
+
+  const setPinchDot = (visible, normX, normY) => {
+    if (!visible) { pinchDot.classList.remove('active'); return; }
+    // Mirror x to match the mirrored video preview
+    pinchDot.style.left = `${(1 - normX) * 100}%`;
+    pinchDot.style.top  = `${normY * 100}%`;
+    pinchDot.classList.add('active');
+  };
+
+  const startHandDrag = (handX) => {
+    if (state.mode !== 'rest' && state.mode !== 'returning') return;
+    if (state.pointerId !== null) return; // mouse drag in progress
+    state.handPinching = true;
+    state.handStartX = handX;
+    state.handStartDragX = state.dragX;
+    if (!state.hasInteracted) {
+      state.hasInteracted = true;
+      hint.classList.add('gone');
+    }
+    pickNextVariant();
+    state.mode = 'dragging';
+    state.velocity = 0;
+  };
+
+  const updateHandDrag = (handX) => {
+    if (state.mode !== 'dragging' || !state.handPinching) return;
+    let next = state.handStartDragX + (handX - state.handStartX) * HAND_DRAG_SCALE;
+    if (next < 0) next = 0;
+    if (next > 1) {
+      const o = next - 1;
+      next = 1 + 0.06 * (o / (o + 0.5));
+    }
+    state.dragX = next;
+  };
+
+  const finishHandDrag = () => {
+    if (!state.handPinching) return;
+    state.handPinching = false;
+    if (state.mode !== 'dragging') return;
+    if (state.dragX >= THRESHOLD) {
+      state.mode = 'final';
+      state.target = 1;
+      state.velocity = Math.min(state.velocity, 4);
+      startAutoResetCountdown();
+    } else {
+      state.mode = 'returning';
+      state.target = 0;
+    }
+  };
+
+  const processHandFrame = (result) => {
+    const lm = result.landmarks?.[0];
+    if (!lm) {
+      if (state.handPinching) finishHandDrag();
+      setPinchDot(false);
+      return;
+    }
+    const thumb = lm[4];
+    const index = lm[8];
+    const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+    const handX = (thumb.x + index.x) / 2; // raw, pre-mirror
+    const handY = (thumb.y + index.y) / 2;
+    // Hand is "natural-mirrored" so that user's right-hand-right movement
+    // increases dragX. Camera raw x grows left→right, but we mirror visually,
+    // so user's right movement = decreasing raw x ⇒ flip.
+    const naturalX = 1 - handX;
+
+    if (!state.handPinching && dist < PINCH_DOWN) {
+      startHandDrag(naturalX);
+    } else if (state.handPinching && dist > PINCH_UP) {
+      finishHandDrag();
+    } else if (state.handPinching) {
+      updateHandDrag(naturalX);
+    }
+    setPinchDot(state.handPinching, handX, handY);
+  };
+
+  const handDetectLoop = () => {
+    if (!state.handMode) return;
+    if (handLandmarker && cameraVideo.readyState >= 2 && !cameraVideo.paused) {
+      const now = performance.now();
+      if (now > lastHandTimestamp) {
+        const result = handLandmarker.detectForVideo(cameraVideo, now);
+        lastHandTimestamp = now;
+        processHandFrame(result);
+      }
+    }
+    handFrameId = requestAnimationFrame(handDetectLoop);
+  };
+
+  const enterHandMode = async () => {
+    if (state.handMode) return;
+    handBtn.classList.add('loading');
+    try {
+      handStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: 'user' },
+        audio: false,
+      });
+      cameraVideo.srcObject = handStream;
+      await cameraVideo.play();
+      if (!handLandmarker) {
+        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+        const fileset = await vision.FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+        );
+        handLandmarker = await vision.HandLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+            delegate: 'GPU',
+          },
+          runningMode: 'VIDEO',
+          numHands: 1,
+        });
+      }
+      state.handMode = true;
+      handBtn.classList.add('active');
+      cameraPreview.classList.add('visible');
+      lastHandTimestamp = 0;
+      handDetectLoop();
+    } catch (err) {
+      console.error('Hand mode failed:', err);
+      alert('Could not start hand mode: ' + (err?.message || err));
+      cleanupHandMode();
+    } finally {
+      handBtn.classList.remove('loading');
+    }
+  };
+
+  const cleanupHandMode = () => {
+    if (state.handPinching) finishHandDrag();
+    state.handMode = false;
+    handBtn.classList.remove('active');
+    cameraPreview.classList.remove('visible');
+    setPinchDot(false);
+    if (handFrameId) cancelAnimationFrame(handFrameId);
+    handFrameId = null;
+    if (handStream) {
+      handStream.getTracks().forEach(t => t.stop());
+      handStream = null;
+    }
+    cameraVideo.srcObject = null;
+  };
+
+  handBtn.addEventListener('click', () => {
+    if (state.handMode) cleanupHandMode();
+    else enterHandMode();
+  });
+
+  // --- Layout: center WITH+IBM cluster horizontally + vertically --------
+  // Uses canvas.measureText to get the real ink metrics of "WITH" (Chrome's
+  // SVG getBBox returns the em-box, which includes ascender/descender padding
+  // and is ~1.86× the visible cap-height — useless for alignment).
+  const layoutCluster = () => {
+    const withText = document.getElementById('with-text');
+    const ibmInner = document.getElementById('ibm-inner');
+
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `200 ${FONT_SIZE}px "IBM Plex Sans"`;
+    const m = ctx.measureText('WITH');
+    const ascent = m.actualBoundingBoxAscent;   // baseline → ink top
+    const descent = m.actualBoundingBoxDescent; // baseline → ink bottom (≈0)
+    const inkHeight = ascent + descent;
+    const withWidth = m.width;
+
+    // IBM matches the visible ink height of WITH.
+    IBM_LOGO_H = inkHeight;
+    IBM_SCALE = IBM_LOGO_H / 322;
+    IBM_LOGO_W = 800 * IBM_SCALE;
+
+    // Switch WITH to alphabetic baseline so y is the baseline position; place
+    // the baseline so the ink center lands exactly on MIDLINE_Y.
+    const baselineY = MIDLINE_Y + (ascent - descent) / 2;
+    withText.setAttribute('dominant-baseline', 'alphabetic');
+    withText.setAttribute('y', baselineY);
+
+    MEET_X = Math.round(SCENE_CENTER + (withWidth - IBM_LOGO_W) / 2);
+    withText.setAttribute('x', MEET_X);
+    ibmInner.setAttribute('transform', `translate(${MEET_X}, ${MIDLINE_Y - IBM_LOGO_H / 2}) scale(${IBM_SCALE})`);
+
+    // Match the invisible hit rect to the IBM bounding box so the entire
+    // logo footprint is draggable.
+    const ibmHit = document.getElementById('ibm-hit');
+    ibmHit.setAttribute('x', MEET_X);
+    ibmHit.setAttribute('y', MIDLINE_Y - IBM_LOGO_H / 2);
+    ibmHit.setAttribute('width', IBM_LOGO_W);
+    ibmHit.setAttribute('height', IBM_LOGO_H);
+
+    // Cap MAX_OFFSET so that at dragX=1 neither WITH (left side) nor IBM
+    // (right side) can be clipped by the composition edges. Account for the
+    // rubber-band overshoot allowed in onPointerMove (~1.06).
+    const withLeftAtRest = MEET_X - withWidth;
+    const ibmRightAtRest = MEET_X + IBM_LOGO_W;
+    const leftRoom = withLeftAtRest - SAFE_MARGIN;
+    const rightRoom = (VB - ibmRightAtRest) - SAFE_MARGIN;
+    const safeLimit = Math.min(leftRoom, rightRoom) / 1.06;
+    MAX_OFFSET = Math.max(40, Math.min(240, safeLimit));
+  };
+
+  // --- Intro animation ---------------------------------------------------
+  const playIntro = () => {
+    layoutCluster();
+    state.mode = 'intro';
+    // Start: WITH centered alone (not pushed left yet), IBM hidden.
+    // We accomplish this by initially translating WITH +MAX_OFFSET/2 right
+    // (so it visually sits at center of composition), and IBM offset off-screen.
+    const introStart = performance.now();
+    const STAGE1_DELAY = 700;   // hold "WITH" alone
+    const STAGE2_DUR = 800;     // IBM enters + WITH slides left
+
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+
+    // WITH starts visually centered: shift WITH right by ibmW/2 so the WITH cluster's
+    // visual center aligns with SCENE_CENTER (since at rest, the cluster center sits
+    // exactly that much to the left of WITH's right edge).
+    const WITH_LONE_OFFSET = IBM_LOGO_W / 2;
+    const IBM_ENTRY_OFFSET = 60; // IBM slides this far in from the right while fading in
+
+    const animate = (now) => {
+      const elapsed = now - introStart;
+
+      if (elapsed < STAGE1_DELAY) {
+        // WITH alone, centered. IBM hidden, parked just to the right.
+        withMark.setAttribute('transform', `translate(${WITH_LONE_OFFSET}, 0)`);
+        ibmMark.setAttribute('opacity', '0');
+        ibmMark.setAttribute('transform', `translate(${WITH_LONE_OFFSET + IBM_ENTRY_OFFSET}, 0)`);
+        requestAnimationFrame(animate);
+        return;
+      }
+
+      const t2 = clamp((elapsed - STAGE1_DELAY) / STAGE2_DUR, 0, 1);
+      const e2 = ease(t2);
+
+      // WITH slides from WITH_LONE_OFFSET back to rest (0)
+      const withTx = lerp(WITH_LONE_OFFSET, 0, e2);
+      withMark.setAttribute('transform', `translate(${withTx}, 0)`);
+
+      // IBM fades in and slides from (WITH_LONE_OFFSET + entry) to rest (0)
+      const ibmTx = lerp(WITH_LONE_OFFSET + IBM_ENTRY_OFFSET, 0, e2);
+      const ibmOpacity = clamp(t2 * 1.6, 0, 1);
+      ibmMark.setAttribute('transform', `translate(${ibmTx}, 0)`);
+      ibmMark.setAttribute('opacity', ibmOpacity);
+
+      // Caption fade-in starts at t2 ~ 0.4
+      const capT = clamp((t2 - 0.4) / 0.6, 0, 1);
+      captionSvg.setAttribute('opacity', capT);
+
+      if (t2 < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Finish intro → rest, show hint
+        ibmMark.setAttribute('opacity', '1');
+        captionSvg.setAttribute('opacity', '1');
+        state.mode = 'rest';
+        state.dragX = 0;
+        state.target = 0;
+        // Pick an initial variant so it's ready (won't render until drag)
+        state.currentVariant = VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
+        // Start the spring/render loop
+        requestAnimationFrame((t) => { lastTime = t; tick(t); });
+        // Show drag hint shortly after
+        setTimeout(() => hint.classList.add('shown'), 400);
+        // Auto-hide hint after a while if no interaction
+        setTimeout(() => {
+          if (!state.hasInteracted) hint.classList.add('gone');
+        }, 6000);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  };
+
+  // --- Boot --------------------------------------------------------------
+  // Wait a tick so fonts paint, then play intro.
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(() => playIntro());
+  } else {
+    setTimeout(playIntro, 200);
+  }
+})();
+</script>
+</body>
+</html>
