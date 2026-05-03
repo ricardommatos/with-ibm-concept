@@ -414,16 +414,17 @@
   const AUTO_RESET_MS = 5000;        // matches reset-ring drain duration in CSS
   const SPRING = { stiffness: 180, damping: 22, mass: 1 };
   const FINAL_SPRING = { stiffness: 140, damping: 24, mass: 1 };
-  const VARIANTS = ['boost', 'blaze', 'build', 'invent'];
+  const VARIANTS = ['blaze', 'build', 'invent', 'scale', 'modernize'];
 
   // Per-variant brand-verb caption. Prefix renders sans, italic span renders
   // serif italic. Both go inside #caption-text and get swapped when the
   // variant changes (with a smooth fade).
   const CAPTIONS = {
-    boost:  { prefix: 'Boost ',    emph: 'your enterprise', suffix: ' with IBM.' },
-    blaze:  { prefix: 'Blaze ',    emph: 'a new trail',     suffix: ' with IBM.' },
-    build:  { prefix: 'Build ',    emph: "what's next",     suffix: ' with IBM.' },
-    invent: { prefix: 'Invent ',   emph: 'the future',      suffix: ' with IBM.' },
+    blaze:     { prefix: 'Blaze ',     emph: 'a new trail',      suffix: ' with IBM.' },
+    build:     { prefix: 'Build ',     emph: "what's next",      suffix: ' with IBM.' },
+    invent:    { prefix: 'Invent ',    emph: 'the future',       suffix: ' with IBM.' },
+    scale:     { prefix: 'Scale ',     emph: 'your reach',       suffix: ' with IBM.' },
+    modernize: { prefix: 'Modernize ', emph: 'what works',       suffix: ' with IBM.' },
   };
 
   // --- State -------------------------------------------------------------
@@ -497,10 +498,11 @@
     if (window.__three?.update) window.__three.update(dragX);
   };
   const variants = {
-    boost:  (_g, dragX) => _drive('boost',  dragX),
-    blaze:  (_g, dragX) => _drive('blaze',  dragX),
-    build:  (_g, dragX) => _drive('build',  dragX),
-    invent: (_g, dragX) => _drive('invent', dragX),
+    blaze:     (_g, dragX) => _drive('blaze',     dragX),
+    build:     (_g, dragX) => _drive('build',     dragX),
+    invent:    (_g, dragX) => _drive('invent',    dragX),
+    scale:     (_g, dragX) => _drive('scale',     dragX),
+    modernize: (_g, dragX) => _drive('modernize', dragX),
   };
 
   // The IIFE never reaches the legacy SVG variant code below; it's left only
@@ -737,7 +739,7 @@
 
     // Wipe and redraw middle mark
     while (middleMark.firstChild) middleMark.removeChild(middleMark.firstChild);
-    const renderer = variants[state.currentVariant] || variants.boost;
+    const renderer = variants[state.currentVariant] || variants.blaze;
     renderer(middleMark, state.dragX);
 
     // Upload always visible after intro so a preloaded image/video can pop
@@ -1266,7 +1268,6 @@
 
 <script type="module">
   import * as THREE from 'three';
-  import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 
   // ---------------------------------------------------------------------
   // Three.js scaffolding — single renderer, scene, camera. Effects swap
@@ -1321,42 +1322,149 @@
   // t is seconds since boot
   // ---------------------------------------------------------------------
 
-  // BOOST — Marching-cubes metaballs squashed into a horizontal band that
-  // sits between WITH and IBM. Three balls morph and orbit; spread grows
-  // with drag.
-  const createBoost = () => {
+  // SCALE — Galaxy generator. Particles arranged along spiral arms with
+  // randomized radial offset; colour graduates from white core to soft
+  // brand-blue at the rim. Slow rotation. Adapted from the classic
+  // Three.js Journey "galaxy" lesson (https://threejs-journey.com).
+  const createScale = () => {
     const group = new THREE.Group();
-    const resolution = 48;
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.22,
-      metalness: 0.08,
+    const COUNT = 4500;
+    const BRANCHES = 4;
+    const RADIUS = 0.7;
+    const SPIN = 1.4;
+    const RANDOMNESS = 0.18;
+    const RAND_POW = 3;
+    const positions = new Float32Array(COUNT * 3);
+    const colors = new Float32Array(COUNT * 3);
+    const radii = new Float32Array(COUNT);
+    const branches = new Float32Array(COUNT);
+    const offsets = new Float32Array(COUNT * 3);
+    const inside  = new THREE.Color(0xffffff);
+    const outside = new THREE.Color(0x9bb6ff);
+    for (let i = 0; i < COUNT; i++) {
+      const r = Math.pow(Math.random(), 1.4) * RADIUS;
+      const branchAngle = (i % BRANCHES) / BRANCHES * Math.PI * 2;
+      radii[i] = r;
+      branches[i] = branchAngle;
+      const sign = () => (Math.random() < 0.5 ? 1 : -1);
+      offsets[i*3]   = Math.pow(Math.random(), RAND_POW) * sign() * RANDOMNESS * r;
+      offsets[i*3+1] = Math.pow(Math.random(), RAND_POW) * sign() * RANDOMNESS * r * 0.3;
+      offsets[i*3+2] = Math.pow(Math.random(), RAND_POW) * sign() * RANDOMNESS * r;
+      const c = inside.clone().lerp(outside, Math.min(1, r / RADIUS));
+      colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
+
+    const material = new THREE.ShaderMaterial({
+      uniforms: { uReveal: { value: 0 }, uPixelRatio: { value: renderer.getPixelRatio() } },
       transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexColors: true,
+      vertexShader: `
+        uniform float uReveal;
+        uniform float uPixelRatio;
+        varying vec3 vColor;
+        void main(){
+          vColor = color;
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = 4.0 * uPixelRatio * (1.0 + uReveal);
+          gl_PointSize *= (1.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying vec3 vColor;
+        void main(){
+          vec2 c = gl_PointCoord - 0.5;
+          float d = length(c);
+          float a = smoothstep(0.5, 0.0, d);
+          gl_FragColor = vec4(vColor, a);
+        }
+      `,
     });
-    const mc = new MarchingCubes(resolution, material, false, false, 60000);
-    // Wide horizontal, thin vertically/depth — sits in the WITH↔IBM band.
-    mc.scale.set(0.55, 0.22, 0.22);
-    group.add(mc);
+    const points = new THREE.Points(geom, material);
+    points.scale.set(0.6, 0.18, 0.18);
+    group.add(points);
 
     const update = (dragX, t) => {
-      mc.reset();
       const reveal = Math.min(dragX * 1.4, 1);
-      // Internal MC coords are [-1..1]. Keep balls inside [-0.7, 0.7] so the
-      // iso surface always closes cleanly inside the box.
-      const spread = 0.08 + dragX * 0.62;
-      const wobY = Math.sin(t * 0.9) * 0.08;
-      const wobY2 = Math.cos(t * 0.7) * 0.08;
-      const wobZ = Math.sin(t * 0.5) * 0.15;
-      const STRENGTH = 0.85;       // each ball's field strength
-      const SUBTRACT = 12;
-      mc.addBall(-spread, wobY,  wobZ,  STRENGTH, SUBTRACT);
-      mc.addBall( spread, wobY2, -wobZ, STRENGTH, SUBTRACT);
-      mc.addBall( Math.sin(t * 0.6) * spread * 0.4, Math.sin(t * 1.4) * 0.18, Math.cos(t * 0.6) * 0.18, STRENGTH * 0.7, SUBTRACT);
-      mc.update();
+      const spin = SPIN * (0.4 + reveal * 0.6);
+      for (let i = 0; i < COUNT; i++) {
+        const r = radii[i] * (0.15 + reveal * 0.85);
+        const angle = branches[i] + r * spin + t * 0.18;
+        positions[i*3]     = Math.cos(angle) * r + offsets[i*3];
+        positions[i*3 + 1] = offsets[i*3 + 1] * (0.4 + reveal * 0.6);
+        positions[i*3 + 2] = Math.sin(angle) * r + offsets[i*3 + 2];
+      }
+      geom.attributes.position.needsUpdate = true;
+      material.uniforms.uReveal.value = reveal;
       material.opacity = reveal;
-      mc.rotation.z = Math.sin(t * 0.2) * 0.05;
+      points.rotation.x = 0.4 - reveal * 0.35;  // tilt toward camera as it grows
     };
-    return { group, update };
+    return { group, update, dispose: () => { geom.dispose(); material.dispose(); } };
+  };
+
+  // MODERNIZE — Wave grid wireframe. PlaneGeometry subdivided, vertex
+  // shader pushes z by a sum of sine waves modulated by drag. Pattern
+  // adapted from threejs.org/examples webgl_geometry_terrain combined
+  // with classic raging-sea vertex displacement.
+  const createModernize = () => {
+    const group = new THREE.Group();
+    const geometry = new THREE.PlaneGeometry(1.6, 0.45, 96, 28);
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uDrag: { value: 0 },
+      },
+      transparent: true,
+      depthWrite: false,
+      wireframe: true,
+      vertexShader: `
+        uniform float uTime;
+        uniform float uDrag;
+        varying float vElev;
+        varying vec2  vUv;
+        void main(){
+          vec3 p = position;
+          // three layered sine waves, frequencies grow with drag
+          float w1 = sin(p.x * 5.5 + uTime * 1.4) * 0.06;
+          float w2 = sin(p.x * 2.3 - uTime * 0.9 + p.y * 3.0) * 0.04;
+          float w3 = sin(p.y * 4.0 + uTime * 0.6) * 0.025;
+          float elev = (w1 + w2 + w3) * uDrag;
+          p.z += elev;
+          vElev = elev;
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+        }
+      `,
+      fragmentShader: `
+        varying float vElev;
+        varying vec2  vUv;
+        void main(){
+          // Brightness peaks at crests, fade at edges so the grid feels
+          // bounded rather than tiled.
+          float edge = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x);
+          float crest = clamp(0.4 + vElev * 6.0, 0.0, 1.2);
+          vec3 col = mix(vec3(0.78, 0.88, 1.0), vec3(1.0), crest);
+          gl_FragColor = vec4(col, edge * 0.95);
+        }
+      `,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.rotation.x = -0.55;
+    group.add(mesh);
+
+    const update = (dragX, t) => {
+      const reveal = Math.min(dragX * 1.4, 1);
+      material.uniforms.uTime.value = t;
+      material.uniforms.uDrag.value = reveal;
+      mesh.scale.setScalar(0.6 + reveal * 0.2);
+      mesh.position.y = -0.02;
+    };
+    return { group, update, dispose: () => { geometry.dispose(); material.dispose(); } };
   };
 
   // BLAZE — Particle storm. Points along seeded directions, exploding
@@ -1602,10 +1710,11 @@
   // it's requested and kept in memory after.
   // ---------------------------------------------------------------------
   const factories = {
-    boost:  createBoost,
-    blaze:  createBlaze,
-    build:  createBuild,
-    invent: createInvent,
+    blaze:     createBlaze,
+    build:     createBuild,
+    invent:    createInvent,
+    scale:     createScale,
+    modernize: createModernize,
   };
   const effects = {};
   let active = null;
@@ -1646,7 +1755,7 @@
   };
 
   // Default to first variant so something is rendering before any drag.
-  setEffect('boost');
+  setEffect('blaze');
   tick();
 
   window.__three = { setEffect, update, setOrigin, resize, _scene: scene, _camera: camera, _renderer: renderer, _THREE: THREE, _effects: effects };
