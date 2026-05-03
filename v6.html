@@ -800,10 +800,11 @@
     state.currentVariant = v;
     setCaption(v);
 
-    // For capsule, pick which uploaded media (if any) shows this round.
+    // For capsule and rotate, pick which uploaded media (if any) this round.
     const previousActive = state.activeMediaIndex >= 0
       ? state.uploadedMedia[state.activeMediaIndex] : null;
-    if (v === 'capsule' && state.uploadedMedia.length > 0) {
+    const usesMedia = (v === 'capsule' || v === 'rotate');
+    if (usesMedia && state.uploadedMedia.length > 0) {
       state.activeMediaIndex = Math.floor(Math.random() * state.uploadedMedia.length);
     } else {
       state.activeMediaIndex = -1;
@@ -816,6 +817,11 @@
     }
     if (newActive?.el) {
       try { newActive.el.play(); } catch (_) {}
+    }
+    // For rotate variant, push the chosen image into the three.js bridge so
+    // the plane swaps its texture before the drag renders.
+    if (v === 'rotate' && newActive?.type === 'image' && window.__three?.setRotateImage) {
+      window.__three.setRotateImage(newActive.src);
     }
   };
 
@@ -1163,6 +1169,15 @@
       // maps to (MEET_X - SCENE_CENTER) / (VB / 2) in scene units.
       window.__three.setOrigin((MEET_X - SCENE_CENTER) / (VB / 2));
     }
+    // Inform three of the gap-band dimensions so effects (currently `rotate`)
+    // can size themselves strictly to the space between WITH and IBM.
+    if (window.__three?.setBandDimensions) {
+      const halfVB = VB / 2;
+      // Full gap at dragX=1 is MAX_OFFSET * 2 in viewBox units.
+      const gapMaxScene = (MAX_OFFSET * 2) / halfVB;
+      const heightScene = IBM_LOGO_H / halfVB;
+      window.__three.setBandDimensions(gapMaxScene, heightScene);
+    }
 
     // Cap MAX_OFFSET so that at dragX=1 neither WITH (left side) nor IBM
     // (right side) can be clipped by the composition edges. Account for the
@@ -1358,17 +1373,20 @@
   // each vertex's rotation angle = dot(distortionAxis, position) * uDistortion,
   // so the sheet twists rather than rotates rigidly. uPosition drives the
   // per-vertex angle through a qinticInOut easing curve.
+  //
+  // Plane is unit-sized (1×1) and scaled per frame to (gapWidth, bandHeight)
+  // so the effect lives strictly between WITH and IBM and matches the cluster
+  // height. Texture defaults to a procedural IBM-stripe pattern; user uploads
+  // swap it in via window.__three.setRotateImage(url).
   const createRotate = () => {
     const group = new THREE.Group();
-    const planeW = 1.4;
-    const planeH = 0.34;
-    const geometry = new THREE.PlaneGeometry(planeW, planeH, 64, 16);
-    const tex = buildIbmStripeTexture();
+    const geometry = new THREE.PlaneGeometry(1, 1, 64, 16);
+    const defaultTex = buildIbmStripeTexture();
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        tMap:           { value: tex },
+        tMap:           { value: defaultTex },
         uPosition:      { value: 0 },
-        uPlaneSize:     { value: new THREE.Vector2(planeW, planeH) },
+        uPlaneSize:     { value: new THREE.Vector2(1, 1) },
         uImageSize:     { value: new THREE.Vector2(1024, 384) },
         rotationAxis:   { value: new THREE.Vector3(1, 0, 0) },   // horizontal axis = X
         distortionAxis: { value: new THREE.Vector3(1, 0, 0) },   // twist along width
@@ -1439,16 +1457,41 @@
     const mesh = new THREE.Mesh(geometry, material);
     group.add(mesh);
 
+    let currentTex = defaultTex;
+    const setImage = (url) => {
+      const loader = new THREE.TextureLoader();
+      loader.load(url, (newTex) => {
+        newTex.colorSpace = THREE.SRGBColorSpace;
+        const old = material.uniforms.tMap.value;
+        material.uniforms.tMap.value = newTex;
+        const w = newTex.image?.naturalWidth  || newTex.image?.width  || 1024;
+        const h = newTex.image?.naturalHeight || newTex.image?.height || 768;
+        material.uniforms.uImageSize.value.set(w, h);
+        if (old && old !== defaultTex) old.dispose();
+        currentTex = newTex;
+      });
+    };
+    if (pendingRotateImage) {
+      setImage(pendingRotateImage);
+      pendingRotateImage = null;
+    }
+
     const update = (dragX, _t) => {
       const reveal = Math.min(dragX * 1.4, 1);
-      // Slightly past 1 produces the full half-rotation
       material.uniforms.uPosition.value = reveal;
       material.uniforms.uOpacity.value = Math.min(1, reveal * 1.5);
+      // Live-fit the plane to the WITH↔IBM gap. Width grows with drag (gap
+      // widens proportionally to MAX_OFFSET), height stays fixed at IBM_LOGO_H.
+      const w = Math.max(0.001, bandMaxWidth * reveal);
+      const h = bandHeight;
+      mesh.scale.set(w, h, 1);
+      material.uniforms.uPlaneSize.value.set(w, h);
     };
-    return { group, update, dispose: () => {
+    return { group, update, setImage, dispose: () => {
       geometry.dispose();
       material.dispose();
-      tex.dispose();
+      defaultTex.dispose();
+      if (currentTex && currentTex !== defaultTex) currentTex.dispose();
     }};
   };
 
@@ -1630,6 +1673,12 @@
   // Scene units: 0 = canvas center, +0.x = right of center. Lets all effects
   // align with the WITH↔IBM gap centered on MEET_X (not SCENE_CENTER).
   let originX = 0;
+  // Band dimensions (gap between WITH↔IBM at full drag, and the cluster
+  // height in scene units). Set by the IIFE in layoutCluster().
+  let bandMaxWidth = 0.7;
+  let bandHeight   = 0.20;
+  // Pending rotate image, in case it arrives before the effect is built
+  let pendingRotateImage = null;
 
   const setEffect = (name) => {
     if (!factories[name]) return;
@@ -1650,6 +1699,14 @@
     originX = xNormalized;
     if (active?.group) active.group.position.x = originX;
   };
+  const setBandDimensions = (w, h) => {
+    bandMaxWidth = w;
+    bandHeight = h;
+  };
+  const setRotateImage = (url) => {
+    if (effects.rotate?.setImage) effects.rotate.setImage(url);
+    else pendingRotateImage = url;
+  };
 
   // Render loop runs continuously so effects are alive between drags.
   const start = performance.now();
@@ -1664,7 +1721,7 @@
   setEffect('rotate');
   tick();
 
-  window.__three = { setEffect, update, setOrigin, resize, _scene: scene, _camera: camera, _renderer: renderer, _THREE: THREE, _effects: effects };
+  window.__three = { setEffect, update, setOrigin, setBandDimensions, setRotateImage, resize, _scene: scene, _camera: camera, _renderer: renderer, _THREE: THREE, _effects: effects };
 </script>
 </body>
 </html>
