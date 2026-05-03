@@ -1,0 +1,1766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WITH — IBM · v4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@200;300;400;500&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<style>
+  :root {
+    --ibm-blue: #0F62FE;
+    --white: #FFFFFF;
+    --plex-sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --plex-serif: 'IBM Plex Serif', Georgia, serif;
+    --plex-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: var(--ibm-blue);
+    color: var(--white);
+    font-family: var(--plex-sans);
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+    overscroll-behavior: none;
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .composition {
+    position: relative;
+    width: min(100vw, 100vh);
+    height: min(100vw, 100vh);
+    max-width: 1080px;
+    max-height: 1080px;
+  }
+
+  svg.scene {
+    width: 100%;
+    height: 100%;
+    display: block;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Three.js canvas — sits behind the SVG so WITH and IBM cover the parts
+     they paint, and the 3D effect shows through the gap between them. */
+  .three-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  .ibm-handle {
+    cursor: grab;
+    touch-action: none;
+  }
+  .ibm-handle.dragging { cursor: grabbing; }
+
+  /* Caption + UI overlays positioned in % so they scale with composition */
+  .caption {
+    position: absolute;
+    bottom: 9%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--plex-sans);
+    font-size: clamp(14px, 2.1vmin, 26px);
+    font-weight: 400;
+    letter-spacing: 0.005em;
+    color: var(--white);
+    pointer-events: none;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 600ms ease 800ms;
+  }
+  .caption.shown { opacity: 1; }
+  .caption em {
+    font-family: var(--plex-serif);
+    font-style: italic;
+    font-weight: 400;
+  }
+
+  .upload {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 320ms ease;
+  }
+  .upload.visible { opacity: 1; pointer-events: auto; }
+  .upload button {
+    appearance: none;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.35);
+    color: rgba(255,255,255,0.78);
+    font-family: var(--plex-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+  }
+  .upload button:hover {
+    color: var(--white);
+    border-color: var(--white);
+    background: rgba(255,255,255,0.06);
+  }
+  .upload .clear {
+    padding: 8px 10px;
+  }
+  .upload button:disabled {
+    cursor: default;
+    color: rgba(255,255,255,0.4);
+    border-color: rgba(255,255,255,0.18);
+  }
+  .upload button:disabled:hover {
+    color: rgba(255,255,255,0.4);
+    border-color: rgba(255,255,255,0.18);
+    background: transparent;
+  }
+  .upload-count {
+    margin-left: 6px;
+    opacity: 0.55;
+    font-variant-numeric: tabular-nums;
+  }
+  .upload .hand {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+  }
+  .upload .hand svg { width: 14px; height: 14px; }
+  .upload .hand .hand-label { letter-spacing: 0.18em; }
+  .upload .hand.active {
+    color: var(--ibm-blue);
+    background: var(--white);
+    border-color: var(--white);
+  }
+  .upload .hand.active:hover {
+    color: var(--ibm-blue);
+    background: var(--white);
+  }
+  .upload .hand.loading { opacity: 0.6; pointer-events: none; }
+
+  .camera-preview {
+    position: absolute;
+    bottom: 24px;
+    left: 24px;
+    width: 200px;
+    height: 150px;
+    border-radius: 12px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px);
+    transition: opacity 320ms ease, transform 320ms cubic-bezier(.2,.8,.2,1);
+    border: 1px solid rgba(255,255,255,0.22);
+    background: rgba(0,0,0,0.25);
+  }
+  .camera-preview.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .camera-preview video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    transform: scaleX(-1); /* mirror so movement matches user's POV */
+  }
+  .pinch-dot {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--white);
+    box-shadow: 0 0 0 3px rgba(15,98,254,0.6);
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 120ms ease;
+    pointer-events: none;
+    left: 0; top: 0;
+  }
+  .pinch-dot.active { transform: translate(-50%, -50%) scale(1); }
+
+  .reset {
+    position: absolute;
+    top: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.78);
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 320ms ease, color 180ms ease, background 180ms ease;
+  }
+  .reset.visible { opacity: 1; pointer-events: auto; }
+  .reset:hover {
+    color: var(--white);
+    background: rgba(255,255,255,0.06);
+  }
+  .reset:active .reset-icon { transform: rotate(-180deg); }
+  .reset-icon {
+    width: 14px;
+    height: 14px;
+    transition: transform 420ms cubic-bezier(.2,.8,.2,1);
+  }
+  .reset-ring {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    transform: rotate(-90deg);
+  }
+  .reset-ring circle { fill: none; stroke-width: 1.4; }
+  .reset-ring .track { stroke: rgba(255,255,255,0.18); }
+  .reset-ring .progress {
+    stroke: rgba(255,255,255,0.7);
+    stroke-linecap: round;
+    /* circumference for r=18 ≈ 113.1 */
+    stroke-dasharray: 113.1;
+    stroke-dashoffset: 0;
+    transition: stroke-dashoffset 220ms linear;
+  }
+  .reset.visible .reset-ring .progress {
+    stroke-dashoffset: 113.1;
+    transition: stroke-dashoffset 5000ms linear;
+  }
+
+  .hint {
+    position: absolute;
+    top: calc(50% + 9%);
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--plex-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.55);
+    transition: opacity 600ms ease;
+    pointer-events: none;
+    opacity: 0;
+  }
+  .hint.shown { opacity: 1; }
+  .hint.gone { opacity: 0; }
+
+  .corner-tag {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    font-family: var(--plex-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="composition" id="composition">
+    <canvas class="three-canvas" id="threeCanvas"></canvas>
+    <svg class="scene" id="scene" viewBox="0 0 1080 1080" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+      <defs>
+        <clipPath id="capsule-clip">
+          <rect id="capsule-clip-rect" x="0" y="0" width="0" height="0" rx="0" ry="0" />
+        </clipPath>
+      </defs>
+
+      <!-- Caption text inside SVG so it scales with the composition.
+           Updated dynamically per variant — italic span is the brand story. -->
+      <g id="caption-svg" opacity="0">
+        <text id="caption-text" x="540" y="980" text-anchor="middle" font-family="IBM Plex Sans" font-weight="400" font-size="28" fill="white">
+          <tspan id="caption-prefix">Let&#x2019;s create&#160;</tspan><tspan id="caption-emph" font-family="IBM Plex Serif" font-style="italic">smarter business</tspan><tspan id="caption-suffix">.</tspan>
+        </text>
+      </g>
+
+      <!-- WITH text. Right edge anchored to MEET_X (computed at runtime). -->
+      <g id="with-mark" transform="translate(0,0)" opacity="1">
+        <text id="with-text" x="540" y="540" text-anchor="end" dominant-baseline="middle"
+              font-family="IBM Plex Sans" font-weight="200" font-size="150"
+              letter-spacing="-1.5" fill="white">WITH</text>
+      </g>
+
+      <!-- Middle mark group, will be redrawn each frame based on dragX + variant -->
+      <g id="middle-mark"></g>
+
+      <!-- IBM logo. Left edge anchored to MEET_X (computed at runtime). -->
+      <!-- Source path is 800 x 322. Inner transform: translate(MEET_X, midline-h/2) scale(s) -->
+      <g id="ibm-mark" class="ibm-handle" transform="translate(0,0)" opacity="0">
+        <!-- Invisible hit area covering the full IBM bounding box so the
+             whole logo footprint is draggable, not just the white stripes. -->
+        <rect id="ibm-hit" x="0" y="0" width="0" height="0" fill="transparent" pointer-events="all" />
+        <g id="ibm-inner" transform="translate(540, 499) scale(0.255)">
+          <path fill="white" d="M 0,0 L 0,22.0625 L 155.71875,22.0625 L 155.71875,0 L 0,0 z M 177.78125,0 L 177.78125,22.0625 L 399.6875,22.0625 C 399.68749,22.06251 377.021,0 347,0 L 177.78125,0 z M 443.21875,0 L 443.21875,22.0625 L 577.46875,22.0625 L 569.5,0 L 443.21875,0 z M 673.71875,0 L 665.75,22.0625 L 798.78125,22.0625 L 798.78125,0 L 673.71875,0 z M 0,42.90625 L 0,64.96875 L 155.71875,64.96875 L 155.71875,42.90625 L 0,42.90625 z M 177.78125,42.9375 L 177.78125,64.96875 L 425.4375,64.96875 C 425.4375,64.96876 422.545,47.9885 417.5,42.9375 L 177.78125,42.9375 z M 443.21875,42.9375 L 443.21875,64.96875 L 592.1875,64.96875 L 584.8125,42.9375 L 443.21875,42.9375 z M 657.78125,42.9375 L 650.40625,64.96875 L 798.78125,64.96875 L 798.78125,42.9375 L 657.78125,42.9375 z M 44.75,85.8125 L 44.75,107.90625 L 112.1875,107.90625 L 112.1875,85.8125 L 44.75,85.8125 z M 222.53125,85.8125 L 222.53125,107.90625 L 289.96875,107.90625 L 289.96875,85.8125 L 222.53125,85.8125 z M 355.5625,85.8125 L 355.5625,107.90625 L 423,107.90625 C 423.00001,107.90625 427.28125,96.2385 427.28125,85.8125 L 355.5625,85.8125 z M 487.96875,85.8125 L 487.96875,107.90625 L 607.53125,107.90625 L 599.5625,85.8125 L 487.96875,85.8125 z M 643.09375,85.8125 L 635.09375,107.90625 L 755.25,107.90625 L 755.25,85.8125 L 643.09375,85.8125 z M 44.75,128.75 L 44.75,150.8125 L 112.1875,150.8125 L 112.1875,128.75 L 44.75,128.75 z M 222.53125,128.75 L 222.53125,150.8125 L 394.78125,150.8125 C 394.78126,150.81249 409.19025,139.492 413.78125,128.75 L 222.53125,128.75 z M 487.96875,128.75 L 487.96875,150.8125 L 555.40625,150.8125 L 555.40625,138.53125 L 559.6875,150.8125 L 683.21875,150.8125 L 687.8125,138.53125 L 687.8125,150.8125 L 755.25,150.8125 L 755.25,128.75 L 628.65625,128.75 L 621.9375,147.4375 L 615.1875,128.75 L 487.96875,128.75 z M 44.75,171.65625 L 44.75,193.71875 L 112.1875,193.71875 L 112.1875,171.65625 L 44.75,171.65625 z M 222.53125,171.65625 L 222.53125,193.71875 L 413.78125,193.71875 C 409.18926,183.01175 394.78125,171.65625 394.78125,171.65625 L 222.53125,171.65625 z M 487.96875,171.65625 L 487.96875,193.71875 L 555.40625,193.71875 L 555.40625,171.65625 L 487.96875,171.65625 z M 567.65625,171.65625 L 575.8125,193.71875 L 668.4375,193.71875 L 676.1875,171.65625 L 567.65625,171.65625 z M 687.8125,171.65625 L 687.8125,193.71875 L 755.25,193.71875 L 755.25,171.65625 L 687.8125,171.65625 z M 44.75,214.5625 L 44.75,236.625 L 112.1875,236.625 L 112.1875,214.5625 L 44.75,214.5625 z M 222.53125,214.5625 L 222.53125,236.625 L 289.96875,236.625 L 289.96875,214.5625 L 222.53125,214.5625 z M 355.5625,214.5625 L 355.5625,236.625 L 427.28125,236.625 C 427.28126,226.21301 423,214.5625 423,214.5625 L 355.5625,214.5625 z M 487.96875,214.5625 L 487.96875,236.625 L 555.40625,236.625 L 555.40625,214.5625 L 487.96875,214.5625 z M 582.96875,214.5625 L 590.875,236.625 L 652.96875,236.625 L 660.9375,214.5625 L 582.96875,214.5625 z M 687.8125,214.5625 L 687.8125,236.625 L 755.25,236.625 L 755.25,214.5625 L 687.8125,214.5625 z M 1.21875,257.46875 L 1.21875,279.5625 L 156.9375,279.5625 L 156.9375,257.46875 L 1.21875,257.46875 z M 177.78125,257.46875 L 177.78125,279.5625 L 417.5,279.5625 C 422.545,274.5035 425.4375,257.46875 425.4375,257.46875 L 177.78125,257.46875 z M 444.4375,257.46875 L 444.4375,279.5625 L 555.40625,279.5625 L 555.40625,257.46875 L 444.4375,257.46875 z M 598.3125,257.46875 L 606.4375,279.5625 L 638.03125,279.5625 L 645.65625,257.46875 L 598.3125,257.46875 z M 687.8125,257.46875 L 687.8125,279.5625 L 800,279.5625 L 800,257.46875 L 687.8125,257.46875 z M 1.21875,300.40625 L 1.21875,322.46875 L 156.9375,322.46875 L 156.9375,300.40625 L 1.21875,300.40625 z M 177.78125,300.40625 L 177.78125,322.4375 L 347,322.4375 C 377.02099,322.43749 399.6875,300.40625 399.6875,300.40625 L 177.78125,300.40625 z M 444.4375,300.40625 L 444.4375,322.46875 L 555.40625,322.46875 L 555.40625,300.40625 L 444.4375,300.40625 z M 613.71875,300.40625 L 621.53125,322.40625 L 622.875,322.4375 L 630.8125,300.40625 L 613.71875,300.40625 z M 687.8125,300.40625 L 687.8125,322.46875 L 800,322.46875 L 800,300.40625 L 687.8125,300.40625 z" />
+        </g>
+      </g>
+    </svg>
+
+    <div class="corner-tag">WITH — IBM · v4 / openprocessing</div>
+    <div class="hint" id="hint">drag&nbsp;&nbsp;→</div>
+
+    <div class="upload" id="upload">
+      <button id="handBtn" class="hand" type="button" aria-label="Hand control mode" title="Hand control">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 11V6a1.5 1.5 0 1 1 3 0v5"/>
+          <path d="M12 11V4.5a1.5 1.5 0 1 1 3 0V11"/>
+          <path d="M15 11V6a1.5 1.5 0 1 1 3 0v8a6 6 0 0 1-6 6h-1.5a4.5 4.5 0 0 1-4.5-4.5V11a1.5 1.5 0 0 1 3 0"/>
+        </svg>
+        <span class="hand-label">HAND</span>
+      </button>
+      <button id="uploadBtn" type="button">+ Add image / video <span class="upload-count" id="uploadCount">0/10</span></button>
+      <button id="clearBtn" class="clear" type="button" hidden aria-label="Clear all media">×</button>
+    </div>
+    <div class="camera-preview" id="cameraPreview" aria-hidden="true">
+      <video id="cameraVideo" playsinline muted></video>
+      <div class="pinch-dot" id="pinchDot"></div>
+    </div>
+    <button class="reset" id="resetBtn" type="button" aria-label="Reset">
+      <svg class="reset-ring" viewBox="0 0 40 40" aria-hidden="true">
+        <circle class="track" cx="20" cy="20" r="18"/>
+        <circle class="progress" cx="20" cy="20" r="18"/>
+      </svg>
+      <svg class="reset-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 12a9 9 0 1 0 3-6.7"/>
+        <polyline points="3 3 3 9 9 9"/>
+      </svg>
+    </button>
+    <input type="file" id="fileInput" accept="image/*,video/mp4,video/quicktime" multiple hidden />
+  </div>
+</div>
+
+<script>
+(() => {
+  // --- DOM refs ----------------------------------------------------------
+  const scene = document.getElementById('scene');
+  const withMark = document.getElementById('with-mark');
+  const ibmMark = document.getElementById('ibm-mark');
+  const middleMark = document.getElementById('middle-mark');
+  const captionSvg = document.getElementById('caption-svg');
+  const hint = document.getElementById('hint');
+  const upload = document.getElementById('upload');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const uploadCount = document.getElementById('uploadCount');
+  const clearBtn = document.getElementById('clearBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const handBtn = document.getElementById('handBtn');
+  const cameraPreview = document.getElementById('cameraPreview');
+  const cameraVideo = document.getElementById('cameraVideo');
+  const pinchDot = document.getElementById('pinchDot');
+  const fileInput = document.getElementById('fileInput');
+  const MAX_MEDIA = 10;
+  const composition = document.getElementById('composition');
+  const capsuleClipRect = document.getElementById('capsule-clip-rect');
+
+  // --- Constants ---------------------------------------------------------
+  // Logical (SVG-viewBox) coordinates. Scene is 1080x1080.
+  const VB = 1080;
+  const SCENE_CENTER = 540;
+  const MIDLINE_Y = 540;
+  const FONT_SIZE = 150;
+  // IBM Plex Sans cap-height ratio (≈ 0.698 of font-size). We scale the IBM
+  // logo so its rendered height matches WITH's cap-height — letting WITH and
+  // IBM read as the same height visually.
+  const PLEX_CAP_RATIO = 0.698;
+  let IBM_SCALE = (FONT_SIZE * PLEX_CAP_RATIO) / 322;     // updated in layoutCluster()
+  let IBM_LOGO_W = 800 * IBM_SCALE;
+  let IBM_LOGO_H = 322 * IBM_SCALE;
+  // MEET_X is the x at which WITH's right edge meets IBM's left edge at rest.
+  // Computed at runtime so the cluster (WITH+IBM) is visually centered.
+  let MEET_X = SCENE_CENTER;
+  // At dragX=1 (final): each shifts outward by MAX_OFFSET.
+  // Computed dynamically in layoutCluster() so WITH/IBM never get clipped
+  // by the composition edges. SAFE_MARGIN is the room kept clear on each side.
+  let MAX_OFFSET = 240;
+  const SAFE_MARGIN = 10;
+  const THRESHOLD = 0.5;             // dragX >= this on release => go final
+  const AUTO_RESET_MS = 5000;        // matches reset-ring drain duration in CSS
+  const SPRING = { stiffness: 180, damping: 22, mass: 1 };
+  const FINAL_SPRING = { stiffness: 140, damping: 24, mass: 1 };
+  const VARIANTS = ['stipple', 'ribbons', 'growth', 'ink'];
+
+  // Per-variant brand-verb caption.
+  const CAPTIONS = {
+    stipple: { prefix: 'Maximize ',  emph: 'every insight',      suffix: ' with IBM.' },
+    ribbons: { prefix: 'Modernize ', emph: 'every flow',         suffix: ' with IBM.' },
+    growth:  { prefix: 'Innovate ',  emph: 'without limits',     suffix: ' with IBM.' },
+    ink:     { prefix: 'Create ',    emph: "what's never been",  suffix: ' with IBM.' },
+  };
+
+  // --- State -------------------------------------------------------------
+  const state = {
+    mode: 'idle',         // 'idle' | 'intro' | 'rest' | 'dragging' | 'returning' | 'final' | 'final-return'
+    dragX: 0,
+    target: 0,
+    velocity: 0,
+    pointerId: null,
+    pointerStartX: 0,
+    pointerStartDragX: 0,
+    currentVariant: 'thin',
+    previousVariant: null,
+    uploadedMedia: [],     // Array<{ type:'image'|'video', src, el?:HTMLVideoElement }>, up to MAX_MEDIA
+    activeMediaIndex: -1,  // index in uploadedMedia picked for this drag (-1 = none)
+    hasInteracted: false,
+    handMode: false,
+    handPinching: false,
+    handStartX: 0,         // normalized [0..1] hand x at pinch start
+    handStartDragX: 0,
+  };
+
+  // --- Math helpers ------------------------------------------------------
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+  // Tiny seeded RNG so waveform looks consistent through a single run
+  let seed = 1;
+  const rand = () => {
+    seed = (seed * 9301 + 49297) % 233280;
+    return seed / 233280;
+  };
+  const seededRand = (s) => {
+    let x = Math.sin(s) * 10000;
+    return x - Math.floor(x);
+  };
+
+  // --- Geometry helpers --------------------------------------------------
+  // Right edge of WITH (in scene coords) given dragX
+  const withRight = (dragX) => MEET_X - dragX * MAX_OFFSET;
+  // Left edge of IBM
+  const ibmLeft = (dragX) => MEET_X + dragX * MAX_OFFSET;
+  // Gap width between WITH and IBM
+  const gap = (dragX) => Math.max(0, ibmLeft(dragX) - withRight(dragX));
+
+  // --- SVG node helpers --------------------------------------------------
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+  const svg = (tag, attrs = {}, children = []) => {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) {
+      if (attrs[k] != null) el.setAttribute(k, attrs[k]);
+    }
+    children.forEach(c => el.appendChild(c));
+    return el;
+  };
+
+  // --- Variant renderers -------------------------------------------------
+  // Each renderer takes (group, dragX) and rebuilds children.
+  // V3 routes middle-mark rendering to a Three.js scene running on
+  // #threeCanvas. The IIFE below stays in charge of state (mode, dragX,
+  // currentVariant) and just calls window.__three.setEffect / .update each
+  // frame. The actual three.js setup lives in the <script type="module">
+  // at the bottom of <body>.
+  let _threeActiveName = null;
+  const _drive = (name, dragX) => {
+    if (_threeActiveName !== name) {
+      _threeActiveName = name;
+      if (window.__three?.setEffect) window.__three.setEffect(name);
+    }
+    if (window.__three?.update) window.__three.update(dragX);
+  };
+  const variants = {
+    stipple: (_g, dragX) => _drive('stipple', dragX),
+    ribbons: (_g, dragX) => _drive('ribbons', dragX),
+    growth:  (_g, dragX) => _drive('growth',  dragX),
+    ink:     (_g, dragX) => _drive('ink',     dragX),
+  };
+
+  // The IIFE never reaches the legacy SVG variant code below; it's left only
+  // so the rest of the script (renderers, render loop hooks) keeps compiling
+  // and we can fall back if three.js fails to load.
+  const _legacyVariantsKept = {
+    // FOREST — Planting 15 billion trees with IBM (NASA)
+    // Stylised pine silhouettes that rise from the baseline as you drag.
+    // Heights, widths and trunk offsets are seeded so each tree is unique
+    // but the row stays consistent across renders.
+    forest(g, dragX) {
+      const COUNT = 14;
+      const w = gap(dragX);
+      if (w < 4) return;
+      const x0 = withRight(dragX);
+      const baseY = MIDLINE_Y + IBM_LOGO_H / 2;       // ground line
+      const maxH = IBM_LOGO_H * 1.05;                  // canopy peak
+      for (let i = 0; i < COUNT; i++) {
+        const t = (i + 0.5) / COUNT;
+        const appearAt = i / (COUNT * 1.4);
+        if (dragX < appearAt) continue;
+        const localT = easeOutCubic(clamp((dragX - appearAt) / (1 - appearAt), 0, 1));
+        const heightSeed = 0.55 + 0.45 * seededRand(i * 3.17 + 1.3);
+        const treeH = maxH * heightSeed * localT;
+        if (treeH < 6) continue;
+        const widthSeed = 0.55 + 0.45 * seededRand(i * 5.91 + 9);
+        const treeW = treeH * 0.42 * widthSeed;
+        const trunkH = Math.min(treeH * 0.18, 14);
+        const trunkW = Math.max(2, treeW * 0.12);
+        const cx = x0 + t * w;
+        const top = baseY - treeH;
+        // Trunk
+        g.appendChild(svg('rect', {
+          x: cx - trunkW / 2,
+          y: baseY - trunkH,
+          width: trunkW,
+          height: trunkH,
+          fill: 'white',
+        }));
+        // Foliage — three stacked triangles (pine-style), each smaller and
+        // higher than the last for a layered silhouette.
+        const layers = 3;
+        const foliageH = treeH - trunkH;
+        for (let L = 0; L < layers; L++) {
+          const layerTop = top + (foliageH * L) / (layers + 0.5);
+          const layerBot = top + (foliageH * (L + 1.5)) / (layers + 0.5);
+          const layerW = treeW * (1 - L * 0.18);
+          const points = `${cx},${layerTop} ${cx - layerW / 2},${layerBot} ${cx + layerW / 2},${layerBot}`;
+          g.appendChild(svg('polygon', { points, fill: 'white' }));
+        }
+      }
+    },
+
+    // PULSE — Protecting vulnerable patients with IBM (Mass General Brigham)
+    // ECG/heart-monitor line. Mostly flat baseline punctuated by P-QRS-T
+    // complexes that scroll left → right continuously, like a real monitor.
+    pulse(g, dragX) {
+      const w = gap(dragX);
+      if (w < 4) return;
+      const x0 = withRight(dragX);
+      const cy = MIDLINE_Y;
+      const amp = IBM_LOGO_H * 0.55;          // peak height of QRS spike
+      const samplesPerVbu = 0.6;
+      const samples = Math.max(60, Math.floor(w * samplesPerVbu));
+      const period = 280;                      // distance between QRS spikes (vbu)
+      const time = performance.now() / 1000;
+      const scrollSpeed = 80;                  // vbu/second
+      const phase = (time * scrollSpeed) % period;
+
+      // Reveal envelope so the line draws in as you drag
+      const reveal = easeOutCubic(clamp(dragX, 0, 1));
+
+      // Compute the y for a given local x along the gap, using a synthesised
+      // ECG waveform: small P bump → sharp Q dip → tall R spike → S dip → T bump.
+      const ecg = (xRel) => {
+        const local = ((xRel + phase) % period + period) % period; // 0..period
+        const u = local / period;
+        // Bumps positioned by fraction within the period
+        const P = 0.18 * Math.exp(-Math.pow((u - 0.18) / 0.04, 2));
+        const Q = -0.18 * Math.exp(-Math.pow((u - 0.32) / 0.012, 2));
+        const R = 1.0  * Math.exp(-Math.pow((u - 0.36) / 0.012, 2));
+        const S = -0.30 * Math.exp(-Math.pow((u - 0.40) / 0.014, 2));
+        const T = 0.30 * Math.exp(-Math.pow((u - 0.62) / 0.06, 2));
+        return P + Q + R + S + T;
+      };
+
+      let d = '';
+      for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        const xRel = t * w;
+        const x = x0 + xRel;
+        // Fade-in left edge so the line doesn't pop in mid-drag
+        const edgeFade = Math.min(1, t * 4) * Math.min(1, (1 - t) * 4 + 0.5);
+        const y = cy - ecg(xRel) * amp * reveal * edgeFade;
+        d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
+      }
+      g.appendChild(svg('path', {
+        d,
+        fill: 'none',
+        stroke: 'white',
+        'stroke-width': 4,
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+      }));
+    },
+
+    // HELIX — Discovering the next medical miracle with IBM (Moderna)
+    // Two interweaving sine strands with rungs. Phase rotates over time so
+    // the helix appears to twist; rungs collapse when strands cross.
+    helix(g, dragX) {
+      const w = gap(dragX);
+      if (w < 4) return;
+      const x0 = withRight(dragX);
+      const cy = MIDLINE_Y;
+      const amp = IBM_LOGO_H * 0.45;
+      const reveal = easeOutCubic(clamp(dragX, 0, 1));
+      const time = performance.now() / 1000;
+      const turnsAcross = Math.max(2.5, w / 180);   // # of helix turns within the gap
+      const phase = time * 1.6;                     // rotation speed
+      const samples = Math.max(50, Math.floor(w * 0.5));
+      const strand = (offset) => {
+        let d = '';
+        for (let i = 0; i <= samples; i++) {
+          const t = i / samples;
+          // Fade in from left
+          const fade = easeOutCubic(clamp(t / 0.15, 0, 1)) * easeOutCubic(clamp((1 - t) / 0.15, 0, 1));
+          const x = x0 + t * w;
+          const angle = t * turnsAcross * Math.PI * 2 + phase + offset;
+          const y = cy + Math.sin(angle) * amp * reveal * fade;
+          d += (i === 0 ? 'M' : 'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
+        }
+        return d;
+      };
+      // Rungs first (so strands paint over them)
+      const rungs = Math.max(6, Math.floor(turnsAcross * 4));
+      for (let r = 0; r < rungs; r++) {
+        const t = (r + 0.5) / rungs;
+        const angle = t * turnsAcross * Math.PI * 2 + phase;
+        const fade = easeOutCubic(clamp(t / 0.1, 0, 1)) * easeOutCubic(clamp((1 - t) / 0.1, 0, 1));
+        const y1 = cy + Math.sin(angle) * amp * reveal * fade;
+        const y2 = cy + Math.sin(angle + Math.PI) * amp * reveal * fade;
+        const x = x0 + t * w;
+        // Rung opacity drops as strands cross (small dy = near crossover)
+        const span = Math.abs(y1 - y2);
+        const rungOpacity = clamp(span / (amp * 0.6), 0, 1);
+        if (rungOpacity < 0.05) continue;
+        g.appendChild(svg('line', {
+          x1: x, y1: y1, x2: x, y2: y2,
+          stroke: 'white',
+          'stroke-width': 2,
+          'stroke-linecap': 'round',
+          opacity: rungOpacity * 0.85,
+        }));
+      }
+      // Two strands
+      g.appendChild(svg('path', {
+        d: strand(0),
+        fill: 'none', stroke: 'white', 'stroke-width': 3.5,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      }));
+      g.appendChild(svg('path', {
+        d: strand(Math.PI),
+        fill: 'none', stroke: 'white', 'stroke-width': 3.5,
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+      }));
+    },
+
+    // CONSTELLATION — Pinpointing critical food aid with IBM (UN WFP)
+    // Network of pulsing nodes connected by thin lines. Nodes positioned
+    // with seeded randomness inside the cluster band; lines drawn between
+    // pairs whose distance is below a threshold, suggesting a coordinated
+    // distributed network.
+    constellation(g, dragX) {
+      const w = gap(dragX);
+      if (w < 8) return;
+      const x0 = withRight(dragX);
+      const cy = MIDLINE_Y;
+      const reveal = easeOutCubic(clamp(dragX, 0, 1));
+      const time = performance.now() / 1000;
+
+      const COUNT = 11;
+      // Cache positions seeded once; recompute relative to current x0/w each frame
+      const nodes = [];
+      for (let i = 0; i < COUNT; i++) {
+        const tx = seededRand(i * 11.7 + 0.3);
+        const ty = seededRand(i * 7.31 + 9.1);
+        const x = x0 + tx * w;
+        const y = cy + (ty - 0.5) * IBM_LOGO_H * 0.85;
+        const appearAt = i / (COUNT * 1.4);
+        if (dragX < appearAt) continue;
+        const localT = easeOutCubic(clamp((dragX - appearAt) / (1 - appearAt), 0, 1));
+        const phase = seededRand(i * 2.71) * Math.PI * 2;
+        const pulse = 0.85 + 0.15 * Math.sin(time * 2.4 + phase);
+        const r = 4 * localT * pulse;
+        nodes.push({ x, y, r, t: localT });
+      }
+      // Connections — draw between pairs within proximity threshold
+      const threshold = IBM_LOGO_H * 1.1;
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i], b = nodes[j];
+          const dx = a.x - b.x, dy = a.y - b.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist > threshold) continue;
+          const opacity = (1 - dist / threshold) * Math.min(a.t, b.t) * 0.85 * reveal;
+          if (opacity < 0.04) continue;
+          g.appendChild(svg('line', {
+            x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+            stroke: 'white', 'stroke-width': 1,
+            opacity,
+          }));
+        }
+      }
+      // Nodes — outer halo + solid core for that pinpoint feel
+      for (const n of nodes) {
+        if (n.r < 1) continue;
+        g.appendChild(svg('circle', {
+          cx: n.x, cy: n.y, r: n.r * 2.2,
+          fill: 'white', opacity: 0.18 * reveal,
+        }));
+        g.appendChild(svg('circle', {
+          cx: n.x, cy: n.y, r: n.r,
+          fill: 'white',
+        }));
+      }
+    },
+  };
+
+  // --- Render ------------------------------------------------------------
+  const render = () => {
+    const offsetPx = state.dragX * MAX_OFFSET;
+    withMark.setAttribute('transform', `translate(${-offsetPx}, 0)`);
+    ibmMark.setAttribute('transform', `translate(${offsetPx}, 0)`);
+
+    // Wipe and redraw middle mark
+    while (middleMark.firstChild) middleMark.removeChild(middleMark.firstChild);
+    const renderer = variants[state.currentVariant] || variants.stipple;
+    renderer(middleMark, state.dragX);
+
+    // Upload always visible after intro so a preloaded image/video can pop
+    // into the capsule when randomly selected.
+    const afterIntro = state.mode !== 'idle' && state.mode !== 'intro';
+    upload.classList.toggle('visible', afterIntro);
+    clearBtn.hidden = state.uploadedMedia.length === 0;
+
+    // Reset button visible only when parked at final position.
+    resetBtn.classList.toggle('visible', state.mode === 'final');
+  };
+
+  // --- Spring loop -------------------------------------------------------
+  let lastTime = 0;
+  const tick = (now) => {
+    const dt = lastTime ? Math.min(0.05, (now - lastTime) / 1000) : 0;
+    lastTime = now;
+
+    if (state.mode === 'returning' || state.mode === 'final-return') {
+      const sp = SPRING;
+      const force = -sp.stiffness * (state.dragX - state.target);
+      const damp = -sp.damping * state.velocity;
+      const accel = (force + damp) / sp.mass;
+      state.velocity += accel * dt;
+      state.dragX += state.velocity * dt;
+      if (Math.abs(state.velocity) < 0.001 && Math.abs(state.dragX - state.target) < 0.0008) {
+        state.dragX = state.target;
+        state.velocity = 0;
+        state.mode = 'rest';
+      }
+    } else if (state.mode === 'final' && state.target === 1 && state.dragX < 1) {
+      // Spring up to 1 (briefer, smoother)
+      const sp = FINAL_SPRING;
+      const force = -sp.stiffness * (state.dragX - 1);
+      const damp = -sp.damping * state.velocity;
+      const accel = (force + damp) / sp.mass;
+      state.velocity += accel * dt;
+      state.dragX += state.velocity * dt;
+      if (Math.abs(state.velocity) < 0.002 && Math.abs(state.dragX - 1) < 0.0015) {
+        state.dragX = 1;
+        state.velocity = 0;
+      }
+    }
+
+    render();
+    requestAnimationFrame(tick);
+  };
+
+  // --- Variant chooser ---------------------------------------------------
+  const captionPrefix = document.getElementById('caption-prefix');
+  const captionEmph = document.getElementById('caption-emph');
+  const captionSuffix = document.getElementById('caption-suffix');
+
+  const setCaption = (variantName) => {
+    const c = CAPTIONS[variantName];
+    if (!c) return;
+    captionPrefix.textContent = c.prefix;
+    captionEmph.textContent = c.emph;
+    captionSuffix.textContent = c.suffix;
+  };
+
+  const pickNextVariant = () => {
+    const choices = VARIANTS.filter(v => v !== state.previousVariant);
+    const v = choices[Math.floor(Math.random() * choices.length)];
+    state.previousVariant = state.currentVariant;
+    state.currentVariant = v;
+    setCaption(v);
+
+    // For capsule, pick which uploaded media (if any) shows this round.
+    const previousActive = state.activeMediaIndex >= 0
+      ? state.uploadedMedia[state.activeMediaIndex] : null;
+    if (v === 'capsule' && state.uploadedMedia.length > 0) {
+      state.activeMediaIndex = Math.floor(Math.random() * state.uploadedMedia.length);
+    } else {
+      state.activeMediaIndex = -1;
+    }
+    const newActive = state.activeMediaIndex >= 0
+      ? state.uploadedMedia[state.activeMediaIndex] : null;
+    // Pause any video that was playing and isn't active now.
+    if (previousActive && previousActive !== newActive && previousActive.el) {
+      try { previousActive.el.pause(); } catch (_) {}
+    }
+    if (newActive?.el) {
+      try { newActive.el.play(); } catch (_) {}
+    }
+  };
+
+  // --- Drag --------------------------------------------------------------
+  const compositionWidthScreen = () => composition.getBoundingClientRect().width;
+  // Convert pointer dx (screen px) to dragX delta (logical units)
+  const pxToDragX = (dxScreen) => {
+    const ratio = compositionWidthScreen() / VB;
+    return dxScreen / (MAX_OFFSET * ratio);
+  };
+
+  const onPointerDown = (e) => {
+    if (state.mode !== 'rest' && state.mode !== 'returning') return;
+    if (state.pointerId !== null) return;
+
+    // If we were returning, snapshot current state
+    state.pointerId = e.pointerId;
+    state.pointerStartX = e.clientX;
+    state.pointerStartDragX = state.dragX;
+
+    if (!state.hasInteracted) {
+      state.hasInteracted = true;
+      hint.classList.add('gone');
+    }
+
+    // Pick a fresh variant for this drag (not the same as previous)
+    pickNextVariant();
+
+    state.mode = 'dragging';
+    state.velocity = 0;
+    ibmMark.classList.add('dragging');
+
+    try { ibmMark.setPointerCapture(e.pointerId); } catch (_) {}
+    e.preventDefault();
+  };
+
+  const onPointerMove = (e) => {
+    if (state.mode !== 'dragging' || e.pointerId !== state.pointerId) return;
+    const dx = e.clientX - state.pointerStartX;
+    let next = state.pointerStartDragX + pxToDragX(dx);
+    // Clamp [0..1] with a gentle rubber-band overshoot that asymptotes at 1.06
+    // — guarantees the offset never exceeds what layoutCluster() reserved.
+    if (next < 0) next = 0;
+    if (next > 1) {
+      const o = next - 1;
+      next = 1 + 0.06 * (o / (o + 0.5));
+    }
+    state.dragX = next;
+  };
+
+  const onPointerUp = (e) => {
+    if (e.pointerId !== state.pointerId) return;
+    state.pointerId = null;
+    ibmMark.classList.remove('dragging');
+    try { ibmMark.releasePointerCapture(e.pointerId); } catch (_) {}
+
+    if (state.dragX >= THRESHOLD) {
+      state.mode = 'final';
+      state.target = 1;
+      state.velocity = Math.min(state.velocity, 4);
+      startAutoResetCountdown();
+    } else {
+      state.mode = 'returning';
+      state.target = 0;
+    }
+  };
+
+  let autoResetTimer = null;
+  const startAutoResetCountdown = () => {
+    clearTimeout(autoResetTimer);
+    autoResetTimer = setTimeout(() => resetToRest(), AUTO_RESET_MS);
+  };
+  const cancelAutoResetCountdown = () => {
+    clearTimeout(autoResetTimer);
+    autoResetTimer = null;
+  };
+
+  const resetToRest = () => {
+    if (state.mode !== 'final') return;
+    cancelAutoResetCountdown();
+    state.mode = 'final-return';
+    state.target = 0;
+    state.velocity = 0;
+  };
+  resetBtn.addEventListener('click', resetToRest);
+
+  // Third reset path: click outside the animation area while in final state.
+  composition.addEventListener('click', (e) => {
+    if (state.mode !== 'final') return;
+    const t = e.target;
+    if (t.closest('button, #ibm-mark, #with-mark, #middle-mark, .camera-preview')) return;
+    resetToRest();
+  });
+
+  ibmMark.addEventListener('pointerdown', onPointerDown);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerUp);
+
+  // --- Upload ------------------------------------------------------------
+  const updateUploadUI = () => {
+    const n = state.uploadedMedia.length;
+    uploadCount.textContent = `${n}/${MAX_MEDIA}`;
+    uploadBtn.disabled = n >= MAX_MEDIA;
+    clearBtn.hidden = n === 0;
+  };
+
+  const releaseMedia = (m) => {
+    if (m.el) { try { m.el.pause(); } catch (_) {} }
+    if (m.src && m.src.startsWith('blob:')) URL.revokeObjectURL(m.src);
+  };
+
+  uploadBtn.addEventListener('click', () => {
+    if (state.uploadedMedia.length >= MAX_MEDIA) return;
+    fileInput.click();
+  });
+
+  clearBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    state.uploadedMedia.forEach(releaseMedia);
+    state.uploadedMedia = [];
+    state.activeMediaIndex = -1;
+    updateUploadUI();
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    const files = Array.from(e.target.files || []);
+    for (const file of files) {
+      if (state.uploadedMedia.length >= MAX_MEDIA) break;
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      if (!isVideo && !isImage) continue;
+      const url = URL.createObjectURL(file);
+      state.uploadedMedia.push({ type: isVideo ? 'video' : 'image', src: url });
+    }
+    fileInput.value = '';
+    updateUploadUI();
+  });
+
+  updateUploadUI();
+
+  // --- Hand tracking mode (MediaPipe Tasks Vision, lazy-loaded) ---------
+  // Pinch (thumb tip ↔ index tip close) = grab. Horizontal hand movement
+  // drives dragX. Hooks into the existing 'dragging' state machine so the
+  // same spring/threshold/final/reset logic applies as a mouse drag.
+  let handLandmarker = null;
+  let handStream = null;
+  let handFrameId = null;
+  let lastHandTimestamp = 0;
+  const PINCH_DOWN = 0.06;   // normalized distance to engage
+  const PINCH_UP = 0.10;     // disengage threshold (hysteresis)
+  const HAND_DRAG_SCALE = 2.5;  // hand range fraction × this = full drag
+
+  const setPinchDot = (visible, normX, normY) => {
+    if (!visible) { pinchDot.classList.remove('active'); return; }
+    // Mirror x to match the mirrored video preview
+    pinchDot.style.left = `${(1 - normX) * 100}%`;
+    pinchDot.style.top  = `${normY * 100}%`;
+    pinchDot.classList.add('active');
+  };
+
+  const startHandDrag = (handX) => {
+    if (state.mode !== 'rest' && state.mode !== 'returning') return;
+    if (state.pointerId !== null) return; // mouse drag in progress
+    state.handPinching = true;
+    state.handStartX = handX;
+    state.handStartDragX = state.dragX;
+    if (!state.hasInteracted) {
+      state.hasInteracted = true;
+      hint.classList.add('gone');
+    }
+    pickNextVariant();
+    state.mode = 'dragging';
+    state.velocity = 0;
+  };
+
+  const updateHandDrag = (handX) => {
+    if (state.mode !== 'dragging' || !state.handPinching) return;
+    let next = state.handStartDragX + (handX - state.handStartX) * HAND_DRAG_SCALE;
+    if (next < 0) next = 0;
+    if (next > 1) {
+      const o = next - 1;
+      next = 1 + 0.06 * (o / (o + 0.5));
+    }
+    state.dragX = next;
+  };
+
+  const finishHandDrag = () => {
+    if (!state.handPinching) return;
+    state.handPinching = false;
+    if (state.mode !== 'dragging') return;
+    if (state.dragX >= THRESHOLD) {
+      state.mode = 'final';
+      state.target = 1;
+      state.velocity = Math.min(state.velocity, 4);
+      startAutoResetCountdown();
+    } else {
+      state.mode = 'returning';
+      state.target = 0;
+    }
+  };
+
+  const processHandFrame = (result) => {
+    const lm = result.landmarks?.[0];
+    if (!lm) {
+      if (state.handPinching) finishHandDrag();
+      setPinchDot(false);
+      return;
+    }
+    const thumb = lm[4];
+    const index = lm[8];
+    const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+    const handX = (thumb.x + index.x) / 2; // raw, pre-mirror
+    const handY = (thumb.y + index.y) / 2;
+    // Hand is "natural-mirrored" so that user's right-hand-right movement
+    // increases dragX. Camera raw x grows left→right, but we mirror visually,
+    // so user's right movement = decreasing raw x ⇒ flip.
+    const naturalX = 1 - handX;
+
+    if (!state.handPinching && dist < PINCH_DOWN) {
+      startHandDrag(naturalX);
+    } else if (state.handPinching && dist > PINCH_UP) {
+      finishHandDrag();
+    } else if (state.handPinching) {
+      updateHandDrag(naturalX);
+    }
+    setPinchDot(state.handPinching, handX, handY);
+  };
+
+  const handDetectLoop = () => {
+    if (!state.handMode) return;
+    if (handLandmarker && cameraVideo.readyState >= 2 && !cameraVideo.paused) {
+      const now = performance.now();
+      if (now > lastHandTimestamp) {
+        const result = handLandmarker.detectForVideo(cameraVideo, now);
+        lastHandTimestamp = now;
+        processHandFrame(result);
+      }
+    }
+    handFrameId = requestAnimationFrame(handDetectLoop);
+  };
+
+  const enterHandMode = async () => {
+    if (state.handMode) return;
+    handBtn.classList.add('loading');
+    try {
+      handStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: 'user' },
+        audio: false,
+      });
+      cameraVideo.srcObject = handStream;
+      await cameraVideo.play();
+      if (!handLandmarker) {
+        const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+        const fileset = await vision.FilesetResolver.forVisionTasks(
+          'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+        );
+        handLandmarker = await vision.HandLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+            delegate: 'GPU',
+          },
+          runningMode: 'VIDEO',
+          numHands: 1,
+        });
+      }
+      state.handMode = true;
+      handBtn.classList.add('active');
+      cameraPreview.classList.add('visible');
+      lastHandTimestamp = 0;
+      handDetectLoop();
+    } catch (err) {
+      console.error('Hand mode failed:', err);
+      alert('Could not start hand mode: ' + (err?.message || err));
+      cleanupHandMode();
+    } finally {
+      handBtn.classList.remove('loading');
+    }
+  };
+
+  const cleanupHandMode = () => {
+    if (state.handPinching) finishHandDrag();
+    state.handMode = false;
+    handBtn.classList.remove('active');
+    cameraPreview.classList.remove('visible');
+    setPinchDot(false);
+    if (handFrameId) cancelAnimationFrame(handFrameId);
+    handFrameId = null;
+    if (handStream) {
+      handStream.getTracks().forEach(t => t.stop());
+      handStream = null;
+    }
+    cameraVideo.srcObject = null;
+  };
+
+  handBtn.addEventListener('click', () => {
+    if (state.handMode) cleanupHandMode();
+    else enterHandMode();
+  });
+
+  // --- Layout: center WITH+IBM cluster horizontally + vertically --------
+  // Uses canvas.measureText to get the real ink metrics of "WITH" (Chrome's
+  // SVG getBBox returns the em-box, which includes ascender/descender padding
+  // and is ~1.86× the visible cap-height — useless for alignment).
+  const layoutCluster = () => {
+    const withText = document.getElementById('with-text');
+    const ibmInner = document.getElementById('ibm-inner');
+
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `200 ${FONT_SIZE}px "IBM Plex Sans"`;
+    const m = ctx.measureText('WITH');
+    const ascent = m.actualBoundingBoxAscent;   // baseline → ink top
+    const descent = m.actualBoundingBoxDescent; // baseline → ink bottom (≈0)
+    const inkHeight = ascent + descent;
+    const withWidth = m.width;
+
+    // IBM matches the visible ink height of WITH.
+    IBM_LOGO_H = inkHeight;
+    IBM_SCALE = IBM_LOGO_H / 322;
+    IBM_LOGO_W = 800 * IBM_SCALE;
+
+    // Switch WITH to alphabetic baseline so y is the baseline position; place
+    // the baseline so the ink center lands exactly on MIDLINE_Y.
+    const baselineY = MIDLINE_Y + (ascent - descent) / 2;
+    withText.setAttribute('dominant-baseline', 'alphabetic');
+    withText.setAttribute('y', baselineY);
+
+    MEET_X = Math.round(SCENE_CENTER + (withWidth - IBM_LOGO_W) / 2);
+    withText.setAttribute('x', MEET_X);
+    ibmInner.setAttribute('transform', `translate(${MEET_X}, ${MIDLINE_Y - IBM_LOGO_H / 2}) scale(${IBM_SCALE})`);
+
+    // Match the invisible hit rect to the IBM bounding box so the entire
+    // logo footprint is draggable.
+    const ibmHit = document.getElementById('ibm-hit');
+    ibmHit.setAttribute('x', MEET_X);
+    ibmHit.setAttribute('y', MIDLINE_Y - IBM_LOGO_H / 2);
+    ibmHit.setAttribute('width', IBM_LOGO_W);
+    ibmHit.setAttribute('height', IBM_LOGO_H);
+
+    // Tell the three.js scene where the cluster's vertical axis is so each
+    // effect renders centered on the WITH↔IBM gap (not the composition centre).
+    if (window.__three?.setOrigin) {
+      // Camera vertical extent is ±1 = full composition height (1080 viewBox).
+      // X uses the same scale, so MEET_X offset from SCENE_CENTER in viewBox
+      // maps to (MEET_X - SCENE_CENTER) / (VB / 2) in scene units.
+      window.__three.setOrigin((MEET_X - SCENE_CENTER) / (VB / 2));
+    }
+
+    // Cap MAX_OFFSET so that at dragX=1 neither WITH (left side) nor IBM
+    // (right side) can be clipped by the composition edges. Account for the
+    // rubber-band overshoot allowed in onPointerMove (~1.06).
+    const withLeftAtRest = MEET_X - withWidth;
+    const ibmRightAtRest = MEET_X + IBM_LOGO_W;
+    const leftRoom = withLeftAtRest - SAFE_MARGIN;
+    const rightRoom = (VB - ibmRightAtRest) - SAFE_MARGIN;
+    const safeLimit = Math.min(leftRoom, rightRoom) / 1.06;
+    MAX_OFFSET = Math.max(40, Math.min(240, safeLimit));
+  };
+
+  // --- Intro animation ---------------------------------------------------
+  const playIntro = () => {
+    layoutCluster();
+    state.mode = 'intro';
+    // Start: WITH centered alone (not pushed left yet), IBM hidden.
+    // We accomplish this by initially translating WITH +MAX_OFFSET/2 right
+    // (so it visually sits at center of composition), and IBM offset off-screen.
+    const introStart = performance.now();
+    const STAGE1_DELAY = 700;   // hold "WITH" alone
+    const STAGE2_DUR = 800;     // IBM enters + WITH slides left
+
+    const ease = (t) => 1 - Math.pow(1 - t, 3);
+
+    // WITH starts visually centered: shift WITH right by ibmW/2 so the WITH cluster's
+    // visual center aligns with SCENE_CENTER (since at rest, the cluster center sits
+    // exactly that much to the left of WITH's right edge).
+    const WITH_LONE_OFFSET = IBM_LOGO_W / 2;
+    const IBM_ENTRY_OFFSET = 60; // IBM slides this far in from the right while fading in
+
+    const animate = (now) => {
+      const elapsed = now - introStart;
+
+      if (elapsed < STAGE1_DELAY) {
+        // WITH alone, centered. IBM hidden, parked just to the right.
+        withMark.setAttribute('transform', `translate(${WITH_LONE_OFFSET}, 0)`);
+        ibmMark.setAttribute('opacity', '0');
+        ibmMark.setAttribute('transform', `translate(${WITH_LONE_OFFSET + IBM_ENTRY_OFFSET}, 0)`);
+        requestAnimationFrame(animate);
+        return;
+      }
+
+      const t2 = clamp((elapsed - STAGE1_DELAY) / STAGE2_DUR, 0, 1);
+      const e2 = ease(t2);
+
+      // WITH slides from WITH_LONE_OFFSET back to rest (0)
+      const withTx = lerp(WITH_LONE_OFFSET, 0, e2);
+      withMark.setAttribute('transform', `translate(${withTx}, 0)`);
+
+      // IBM fades in and slides from (WITH_LONE_OFFSET + entry) to rest (0)
+      const ibmTx = lerp(WITH_LONE_OFFSET + IBM_ENTRY_OFFSET, 0, e2);
+      const ibmOpacity = clamp(t2 * 1.6, 0, 1);
+      ibmMark.setAttribute('transform', `translate(${ibmTx}, 0)`);
+      ibmMark.setAttribute('opacity', ibmOpacity);
+
+      // Caption fade-in starts at t2 ~ 0.4
+      const capT = clamp((t2 - 0.4) / 0.6, 0, 1);
+      captionSvg.setAttribute('opacity', capT);
+
+      if (t2 < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Finish intro → rest, show hint
+        ibmMark.setAttribute('opacity', '1');
+        captionSvg.setAttribute('opacity', '1');
+        state.mode = 'rest';
+        state.dragX = 0;
+        state.target = 0;
+        // Pick an initial variant so it's ready (won't render until drag)
+        state.currentVariant = VARIANTS[Math.floor(Math.random() * VARIANTS.length)];
+        // Start the spring/render loop
+        requestAnimationFrame((t) => { lastTime = t; tick(t); });
+        // Show drag hint shortly after
+        setTimeout(() => hint.classList.add('shown'), 400);
+        // Auto-hide hint after a while if no interaction
+        setTimeout(() => {
+          if (!state.hasInteracted) hint.classList.add('gone');
+        }, 6000);
+      }
+    };
+
+    requestAnimationFrame(animate);
+  };
+
+  // --- Boot --------------------------------------------------------------
+  // Wait a tick so fonts paint, then play intro.
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(() => playIntro());
+  } else {
+    setTimeout(playIntro, 200);
+  }
+})();
+</script>
+
+<script type="module">
+  import * as THREE from 'three';
+  import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+  const noise = new ImprovedNoise();
+
+  // ---------------------------------------------------------------------
+  // Three.js scaffolding — single renderer, scene, camera. Effects swap
+  // their root group in/out of the scene. The IIFE drives state and calls
+  // window.__three.setEffect(name) / .update(dragX) every frame.
+  // ---------------------------------------------------------------------
+  const canvas = document.getElementById('threeCanvas');
+  const composition = document.getElementById('composition');
+
+  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setClearColor(0x000000, 0);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+
+  // Orthographic camera framing a -1..1 vertical range; horizontal FOV
+  // adapts to aspect. Effects can size themselves to ~1 unit and look right.
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+  camera.position.set(0, 0, 6);
+  camera.lookAt(0, 0, 0);
+
+  // Lights for the lit effects (boost, build). Particles + invent are
+  // mostly emissive / unlit so lights are a no-op for them.
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+  keyLight.position.set(2, 3, 4);
+  scene.add(keyLight);
+  const fillLight = new THREE.DirectionalLight(0xa8c4ff, 0.6);
+  fillLight.position.set(-3, -1, 2);
+  scene.add(fillLight);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+
+  const resize = () => {
+    const rect = composition.getBoundingClientRect();
+    const w = Math.max(1, Math.round(rect.width));
+    const h = Math.max(1, Math.round(rect.height));
+    renderer.setSize(w, h, false);
+    const aspect = w / h;
+    // Keep vertical extent fixed at 1 unit each side, scale horizontal
+    camera.left = -aspect;
+    camera.right = aspect;
+    camera.top = 1;
+    camera.bottom = -1;
+    camera.updateProjectionMatrix();
+  };
+  resize();
+  window.addEventListener('resize', resize);
+
+  // ---------------------------------------------------------------------
+  // Effects — each returns { group, update(dragX, t), dispose? }
+  // dragX in [0..1] (well, [0..1.06] with rubber-band overshoot)
+  // t is seconds since boot.
+  //
+  // v4 leans hard into the openprocessing aesthetic — accumulated stippling,
+  // hand-drawn calligraphic strokes, organic differential growth, layered
+  // bezier ribbons. Each variant uses a long-lived mutable state (positions,
+  // ages, point chains) instead of regenerating from scratch each frame, so
+  // the artwork "draws itself" as you drag.
+  // ---------------------------------------------------------------------
+
+  // STIPPLE — Persistent dot field that accumulates as drag progresses.
+  // Particles flow along a curl-noise field; on each step they deposit a
+  // dot into a circular buffer (8000 slots). Dots fade with age (eased)
+  // so the pattern feels like inkjet/risograph dots accumulating over a
+  // long exposure. Caption: Maximize every insight.
+  const createStipple = () => {
+    const group = new THREE.Group();
+    const SLOTS = 8000;
+    const positions = new Float32Array(SLOTS * 3);
+    const ages = new Float32Array(SLOTS); // 0 = empty, 1 = fresh
+    const sizeAttr = new Float32Array(SLOTS);
+    let writeIdx = 0;
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute('aAge',     new THREE.BufferAttribute(ages, 1));
+    geom.setAttribute('aSize',    new THREE.BufferAttribute(sizeAttr, 1));
+
+    const material = new THREE.ShaderMaterial({
+      uniforms: { uPixelRatio: { value: renderer.getPixelRatio() } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        attribute float aAge;
+        attribute float aSize;
+        uniform float uPixelRatio;
+        varying float vAlpha;
+        void main(){
+          vAlpha = aAge * aAge;          // ease-in fade
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * uPixelRatio * (40.0 / -mv.z);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: `
+        varying float vAlpha;
+        void main(){
+          vec2 c = gl_PointCoord - 0.5;
+          float d = length(c);
+          float a = smoothstep(0.5, 0.05, d) * vAlpha;
+          gl_FragColor = vec4(1.0, 1.0, 1.0, a * 0.55);
+        }
+      `,
+    });
+    const points = new THREE.Points(geom, material);
+    group.add(points);
+
+    // Live walkers
+    const WALKERS = 60;
+    const walkers = new Float32Array(WALKERS * 3);
+    const seedWalker = (i) => {
+      walkers[i*3]     = (Math.random() - 0.5) * 1.7;
+      walkers[i*3 + 1] = (Math.random() - 0.5) * 0.34;
+      walkers[i*3 + 2] = (Math.random() - 0.5) * 0.06;
+    };
+    for (let i = 0; i < WALKERS; i++) seedWalker(i);
+
+    const eps = 0.04;
+    const curl = (x, y, z) => {
+      const n1 = noise.noise(x, y + eps, z);
+      const n2 = noise.noise(x, y - eps, z);
+      const n3 = noise.noise(x + eps, y, z);
+      const n4 = noise.noise(x - eps, y, z);
+      return [(n1 - n2) / (2*eps), -(n3 - n4) / (2*eps)];
+    };
+
+    let lastReveal = 0;
+    const update = (dragX, t) => {
+      const reveal = Math.min(dragX * 1.4, 1);
+      // Decay all ages slowly so old dots fade
+      const decay = 0.0012;
+      for (let i = 0; i < SLOTS; i++) ages[i] = Math.max(0, ages[i] - decay);
+
+      // Step walkers and deposit dots based on reveal
+      const stepsPerWalker = Math.max(0, Math.floor(reveal * 1.6));
+      const speed = 0.006;
+      for (let i = 0; i < WALKERS; i++) {
+        for (let s = 0; s < stepsPerWalker; s++) {
+          const x = walkers[i*3];
+          const y = walkers[i*3 + 1];
+          const [vx, vy] = curl(x * 1.4 + i * 0.07, y * 1.4, t * 0.18);
+          walkers[i*3]     = x + vx * speed;
+          walkers[i*3 + 1] = y + vy * speed * 0.4;
+          walkers[i*3 + 2] = (Math.random() - 0.5) * 0.04;
+          // Deposit
+          positions[writeIdx*3]     = walkers[i*3];
+          positions[writeIdx*3 + 1] = walkers[i*3 + 1];
+          positions[writeIdx*3 + 2] = walkers[i*3 + 2];
+          ages[writeIdx] = 1.0;
+          sizeAttr[writeIdx] = 0.8 + Math.random() * 1.4;
+          writeIdx = (writeIdx + 1) % SLOTS;
+        }
+        if (Math.abs(walkers[i*3]) > 0.95 || Math.abs(walkers[i*3 + 1]) > 0.22) seedWalker(i);
+      }
+      // When user resets to dragX≈0, fade extra fast so canvas eventually clears
+      if (reveal < 0.05 && lastReveal > 0.05) {
+        for (let i = 0; i < SLOTS; i++) ages[i] *= 0.5;
+      }
+      lastReveal = reveal;
+      geom.attributes.position.needsUpdate = true;
+      geom.attributes.aAge.needsUpdate = true;
+      geom.attributes.aSize.needsUpdate = true;
+    };
+    return { group, update, dispose: () => { geom.dispose(); material.dispose(); } };
+  };
+
+  // RIBBONS — Layered bezier ribbons. Five quadratic curves; each curve
+  // is rendered as multiple stacked Lines at slightly different vertical
+  // offsets and opacities to feel like translucent ribbons in additive
+  // blend. Control points oscillate independently. Caption: Modernize
+  // every flow.
+  const createRibbons = () => {
+    const group = new THREE.Group();
+    const COUNT = 5;
+    const SAMPLES = 80;
+    const LAYERS = 4;
+    const ribbons = [];
+    for (let r = 0; r < COUNT; r++) {
+      const layers = [];
+      for (let l = 0; l < LAYERS; l++) {
+        const positions = new Float32Array(SAMPLES * 3);
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.LineBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const line = new THREE.Line(geom, material);
+        group.add(line);
+        layers.push({ geom, material, positions });
+      }
+      ribbons.push({
+        layers,
+        seed: r,
+        phaseA: Math.random() * Math.PI * 2,
+        phaseB: Math.random() * Math.PI * 2,
+        phaseC: Math.random() * Math.PI * 2,
+      });
+    }
+
+    const update = (dragX, t) => {
+      const reveal = Math.min(dragX * 1.4, 1);
+      for (let r = 0; r < COUNT; r++) {
+        const rib = ribbons[r];
+        // Three control points sweeping smoothly. Endpoints anchored
+        // roughly at the edges of the band, mid float vertically.
+        const ax = -0.85 + Math.sin(t * 0.4 + rib.phaseA) * 0.08;
+        const ay = Math.sin(t * 0.6 + rib.phaseA) * 0.18 * reveal;
+        const bx = Math.cos(t * 0.3 + rib.phaseB) * 0.15;
+        const by = Math.sin(t * 0.5 + rib.phaseB + r) * 0.22 * reveal;
+        const cx = 0.85 + Math.sin(t * 0.4 + rib.phaseC) * 0.08;
+        const cy = Math.cos(t * 0.6 + rib.phaseC) * 0.18 * reveal;
+        // Quadratic bezier sampling
+        for (let l = 0; l < LAYERS; l++) {
+          const layer = rib.layers[l];
+          const offsetY = (l - (LAYERS - 1) / 2) * 0.012 * reveal;
+          for (let i = 0; i < SAMPLES; i++) {
+            const u = i / (SAMPLES - 1);
+            const inv = 1 - u;
+            const x = inv*inv*ax + 2*inv*u*bx + u*u*cx;
+            const y = inv*inv*ay + 2*inv*u*by + u*u*cy + offsetY;
+            // Edge fade so endpoints don't pop in
+            const edge = Math.sin(u * Math.PI);
+            layer.positions[i*3]     = x;
+            layer.positions[i*3 + 1] = y;
+            layer.positions[i*3 + 2] = (l - LAYERS/2) * 0.005 + (r - COUNT/2) * 0.01;
+            // dim edges via geometry compression: keep them but rely on opacity
+          }
+          layer.geom.attributes.position.needsUpdate = true;
+          layer.material.opacity = (0.18 + (LAYERS - l) * 0.08) * reveal;
+        }
+      }
+    };
+    return { group, update, dispose: () => {
+      for (const rib of ribbons) for (const l of rib.layers) { l.geom.dispose(); l.material.dispose(); }
+    }};
+  };
+
+  // GROWTH — Differential growth. A closed chain of points; each frame
+  // every point repels nearby neighbours; segments that stretch beyond a
+  // threshold spawn a midpoint. Result: a line that buckles, folds, and
+  // expands organically — like coral, brain coral, or a slow-mo fingerprint.
+  // Caption: Innovate without limits.
+  const createGrowth = () => {
+    const group = new THREE.Group();
+    const MAX_PTS = 1100;
+    const positions = new Float32Array(MAX_PTS * 3);
+    const indices  = new Uint16Array(MAX_PTS * 2); // line loop as segments
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setIndex(new THREE.BufferAttribute(indices, 1));
+    const material = new THREE.LineBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+    });
+    const line = new THREE.LineSegments(geom, material);
+    group.add(line);
+
+    let pts = [];
+    const reset = () => {
+      pts = [];
+      const N = 26;
+      for (let i = 0; i < N; i++) {
+        const a = i / N * Math.PI * 2;
+        pts.push([Math.cos(a) * 0.06, Math.sin(a) * 0.06]);
+      }
+    };
+    reset();
+
+    const REPEL_R = 0.022;
+    const REPEL_F = 0.0017;
+    const MAX_DIST = 0.018;
+    const ATTRACT_F = 0.06;
+
+    const writeBuffers = () => {
+      const n = pts.length;
+      for (let i = 0; i < n; i++) {
+        positions[i*3]     = pts[i][0];
+        positions[i*3 + 1] = pts[i][1];
+        positions[i*3 + 2] = 0;
+      }
+      let idx = 0;
+      for (let i = 0; i < n; i++) {
+        indices[idx++] = i;
+        indices[idx++] = (i + 1) % n;
+      }
+      geom.setDrawRange(0, idx);
+      geom.attributes.position.needsUpdate = true;
+      geom.index.needsUpdate = true;
+    };
+
+    let lastReveal = 0;
+    const update = (dragX, t) => {
+      const reveal = Math.min(dragX * 1.4, 1);
+      // Reset chain when user fully releases
+      if (reveal < 0.04 && lastReveal > 0.04) reset();
+      lastReveal = reveal;
+      if (reveal < 0.02) {
+        // Just paint nothing while at rest
+        material.opacity = 0;
+        return;
+      }
+      // Repulsion (O(n²), capped)
+      const n = pts.length;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dx = pts[i][0] - pts[j][0];
+          const dy = pts[i][1] - pts[j][1];
+          const d = Math.sqrt(dx*dx + dy*dy);
+          if (d > 0 && d < REPEL_R) {
+            const f = (1 - d / REPEL_R) * REPEL_F;
+            const ux = dx / d, uy = dy / d;
+            pts[i][0] += ux * f; pts[i][1] += uy * f;
+            pts[j][0] -= ux * f; pts[j][1] -= uy * f;
+          }
+        }
+      }
+      // Attraction along chain
+      for (let i = 0; i < n; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % n];
+        const dx = b[0] - a[0], dy = b[1] - a[1];
+        a[0] += dx * ATTRACT_F; a[1] += dy * ATTRACT_F;
+      }
+      // Squash into the band so the form doesn't grow too tall
+      for (let i = 0; i < n; i++) {
+        if (Math.abs(pts[i][1]) > 0.18) pts[i][1] *= 0.96;
+        if (Math.abs(pts[i][0]) > 0.92) pts[i][0] *= 0.96;
+      }
+      // Resampling — insert midpoint where segments stretch
+      if (pts.length < MAX_PTS - 1) {
+        const next = [];
+        for (let i = 0; i < pts.length; i++) {
+          next.push(pts[i]);
+          const a = pts[i];
+          const b = pts[(i + 1) % pts.length];
+          const dx = b[0] - a[0], dy = b[1] - a[1];
+          if (Math.sqrt(dx*dx + dy*dy) > MAX_DIST) {
+            next.push([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]);
+            if (next.length >= MAX_PTS) break;
+          }
+        }
+        pts = next;
+      }
+      writeBuffers();
+      material.opacity = 0.9 * reveal;
+    };
+    return { group, update, dispose: () => { geom.dispose(); material.dispose(); } };
+  };
+
+  // INK — Calligraphic strokes. Quadratic-bezier paths with variable
+  // pressure (sin-curve taper) rendered as triangle strips. Each drag
+  // generates fresh strokes; pressure curve, control points and stroke
+  // count are seeded random. Reveals stroke-by-stroke as drag grows.
+  // Caption: Create what's never been.
+  const createInk = () => {
+    const group = new THREE.Group();
+    const STROKES = 7;
+    const SAMPLES = 48;
+    const meshes = [];
+    const seeds = [];
+
+    for (let s = 0; s < STROKES; s++) {
+      const positions = new Float32Array(SAMPLES * 2 * 3);  // two verts per sample (top + bottom of strip)
+      const indices = new Uint16Array((SAMPLES - 1) * 6);
+      let idx = 0;
+      for (let i = 0; i < SAMPLES - 1; i++) {
+        indices[idx++] = i*2;
+        indices[idx++] = i*2 + 1;
+        indices[idx++] = i*2 + 2;
+        indices[idx++] = i*2 + 1;
+        indices[idx++] = i*2 + 3;
+        indices[idx++] = i*2 + 2;
+      }
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geom.setIndex(new THREE.BufferAttribute(indices, 1));
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+      });
+      const mesh = new THREE.Mesh(geom, material);
+      group.add(mesh);
+      meshes.push({ geom, material, positions, mesh });
+
+      // Seed each stroke
+      const sx = (Math.random() - 0.5) * 1.4;
+      const ex = sx + 0.4 + Math.random() * 0.6;
+      const sy = (Math.random() - 0.5) * 0.18;
+      const ey = sy + (Math.random() - 0.5) * 0.18;
+      const cx = (sx + ex) / 2 + (Math.random() - 0.5) * 0.4;
+      const cy = (sy + ey) / 2 + (Math.random() - 0.5) * 0.25;
+      seeds.push({
+        sx, sy, ex, ey, cx, cy,
+        thick: 0.012 + Math.random() * 0.024,
+        startAt: s / STROKES,                  // reveal staggering
+        bias: Math.random() * 0.4 + 0.3,       // taper bias (0.5 = symmetric)
+      });
+    }
+
+    const update = (dragX, _t) => {
+      const reveal = Math.min(dragX * 1.4, 1);
+      for (let s = 0; s < STROKES; s++) {
+        const seed = seeds[s];
+        const m = meshes[s];
+        const local = Math.max(0, Math.min(1, (reveal - seed.startAt) / (1 - seed.startAt)));
+        const drawT = 1 - Math.pow(1 - local, 2);
+        for (let i = 0; i < SAMPLES; i++) {
+          const u = i / (SAMPLES - 1);
+          const t = u * drawT;     // truncate to current draw progress
+          const inv = 1 - t;
+          const px = inv*inv*seed.sx + 2*inv*t*seed.cx + t*t*seed.ex;
+          const py = inv*inv*seed.sy + 2*inv*t*seed.cy + t*t*seed.ey;
+          // Tangent at t (derivative of quadratic bezier)
+          const tx = 2*(1-t)*(seed.cx - seed.sx) + 2*t*(seed.ex - seed.cx);
+          const ty = 2*(1-t)*(seed.cy - seed.sy) + 2*t*(seed.ey - seed.cy);
+          const tlen = Math.sqrt(tx*tx + ty*ty) || 1;
+          const nx = -ty / tlen, ny = tx / tlen;
+          // Pressure curve — asymmetric taper (calligraphic feel)
+          const pressure = Math.pow(Math.sin(t * Math.PI), 0.6);
+          const w = seed.thick * pressure;
+          m.positions[i*6]     = px + nx * w;
+          m.positions[i*6 + 1] = py + ny * w;
+          m.positions[i*6 + 2] = 0;
+          m.positions[i*6 + 3] = px - nx * w;
+          m.positions[i*6 + 4] = py - ny * w;
+          m.positions[i*6 + 5] = 0;
+        }
+        m.geom.attributes.position.needsUpdate = true;
+        m.material.opacity = local;
+      }
+    };
+    return { group, update, dispose: () => {
+      for (const m of meshes) { m.geom.dispose(); m.material.dispose(); }
+    }};
+  };
+
+  // ---------------------------------------------------------------------
+  // Effect registry + lazy creation. Each effect is built the first time
+  // it's requested and kept in memory after.
+  // ---------------------------------------------------------------------
+  const factories = {
+    stipple: createStipple,
+    ribbons: createRibbons,
+    growth:  createGrowth,
+    ink:     createInk,
+  };
+  const effects = {};
+  let active = null;
+  let lastDragX = 0;
+
+  // Cluster horizontal offset, set by the IIFE once layout is computed.
+  // Scene units: 0 = canvas center, +0.x = right of center. Lets all effects
+  // align with the WITH↔IBM gap centered on MEET_X (not SCENE_CENTER).
+  let originX = 0;
+
+  const setEffect = (name) => {
+    if (!factories[name]) return;
+    if (active && active._name === name) return;
+    if (active) scene.remove(active.group);
+    if (!effects[name]) {
+      const e = factories[name]();
+      e._name = name;
+      effects[name] = e;
+    }
+    active = effects[name];
+    active.group.position.x = originX;
+    scene.add(active.group);
+  };
+
+  const update = (dragX) => { lastDragX = dragX; };
+  const setOrigin = (xNormalized) => {
+    originX = xNormalized;
+    if (active?.group) active.group.position.x = originX;
+  };
+
+  // Render loop runs continuously so effects are alive between drags.
+  const start = performance.now();
+  const tick = () => {
+    const t = (performance.now() - start) / 1000;
+    if (active?.update) active.update(lastDragX, t);
+    renderer.render(scene, camera);
+    requestAnimationFrame(tick);
+  };
+
+  // Default to first variant so something is rendering before any drag.
+  setEffect('stipple');
+  tick();
+
+  window.__three = { setEffect, update, setOrigin, resize, _scene: scene, _camera: camera, _renderer: renderer, _THREE: THREE, _effects: effects };
+</script>
+</body>
+</html>
