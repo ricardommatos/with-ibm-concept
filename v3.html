@@ -414,17 +414,16 @@
   const AUTO_RESET_MS = 5000;        // matches reset-ring drain duration in CSS
   const SPRING = { stiffness: 180, damping: 22, mass: 1 };
   const FINAL_SPRING = { stiffness: 140, damping: 24, mass: 1 };
-  const VARIANTS = ['blaze', 'build', 'invent', 'scale', 'modernize'];
+  const VARIANTS = ['flow', 'bloom', 'attract', 'weave'];
 
   // Per-variant brand-verb caption. Prefix renders sans, italic span renders
   // serif italic. Both go inside #caption-text and get swapped when the
   // variant changes (with a smooth fade).
   const CAPTIONS = {
-    blaze:     { prefix: 'Blaze ',     emph: 'a new trail',      suffix: ' with IBM.' },
-    build:     { prefix: 'Build ',     emph: "what's next",      suffix: ' with IBM.' },
-    invent:    { prefix: 'Invent ',    emph: 'the future',       suffix: ' with IBM.' },
-    scale:     { prefix: 'Scale ',     emph: 'your reach',       suffix: ' with IBM.' },
-    modernize: { prefix: 'Modernize ', emph: 'what works',       suffix: ' with IBM.' },
+    flow:    { prefix: 'Automate ',  emph: 'every flow',         suffix: ' with IBM.' },
+    bloom:   { prefix: 'Innovate ',  emph: 'every season',       suffix: ' with IBM.' },
+    attract: { prefix: 'Maximize ',  emph: 'every signal',       suffix: ' with IBM.' },
+    weave:   { prefix: 'Manage ',    emph: 'every connection',   suffix: ' with IBM.' },
   };
 
   // --- State -------------------------------------------------------------
@@ -498,11 +497,10 @@
     if (window.__three?.update) window.__three.update(dragX);
   };
   const variants = {
-    blaze:     (_g, dragX) => _drive('blaze',     dragX),
-    build:     (_g, dragX) => _drive('build',     dragX),
-    invent:    (_g, dragX) => _drive('invent',    dragX),
-    scale:     (_g, dragX) => _drive('scale',     dragX),
-    modernize: (_g, dragX) => _drive('modernize', dragX),
+    flow:    (_g, dragX) => _drive('flow',    dragX),
+    bloom:   (_g, dragX) => _drive('bloom',   dragX),
+    attract: (_g, dragX) => _drive('attract', dragX),
+    weave:   (_g, dragX) => _drive('weave',   dragX),
   };
 
   // The IIFE never reaches the legacy SVG variant code below; it's left only
@@ -739,7 +737,7 @@
 
     // Wipe and redraw middle mark
     while (middleMark.firstChild) middleMark.removeChild(middleMark.firstChild);
-    const renderer = variants[state.currentVariant] || variants.blaze;
+    const renderer = variants[state.currentVariant] || variants.flow;
     renderer(middleMark, state.dragX);
 
     // Upload always visible after intro so a preloaded image/video can pop
@@ -1268,6 +1266,8 @@
 
 <script type="module">
   import * as THREE from 'three';
+  import { ImprovedNoise } from 'three/addons/math/ImprovedNoise.js';
+  const noise = new ImprovedNoise();
 
   // ---------------------------------------------------------------------
   // Three.js scaffolding — single renderer, scene, camera. Effects swap
@@ -1319,390 +1319,287 @@
   // ---------------------------------------------------------------------
   // Effects — each returns { group, update(dragX, t), dispose? }
   // dragX in [0..1] (well, [0..1.06] with rubber-band overshoot)
-  // t is seconds since boot
+  // t is seconds since boot.
+  //
+  // All four below lean into generative-art idioms (curl noise flow fields,
+  // golden-angle phyllotaxis, strange attractors, Truchet tilings) — the
+  // family of stuff that fills openprocessing.org. Each is seeded so two
+  // drags rarely look identical, and modulated by dragX so the pattern
+  // grows / reveals as the user pulls IBM apart from WITH.
   // ---------------------------------------------------------------------
 
-  // SCALE — Galaxy generator. Particles arranged along spiral arms with
-  // randomized radial offset; colour graduates from white core to soft
-  // brand-blue at the rim. Slow rotation. Adapted from the classic
-  // Three.js Journey "galaxy" lesson (https://threejs-journey.com).
-  const createScale = () => {
+  // FLOW — Curl-noise flow field. Particles emit from a horizontal seed
+  // band and trace short trails along the curl of an ImprovedNoise field;
+  // when they leave the band they recycle. Caption: Automate every flow.
+  const createFlow = () => {
     const group = new THREE.Group();
-    const COUNT = 4500;
-    const BRANCHES = 4;
-    const RADIUS = 0.7;
-    const SPIN = 1.4;
-    const RANDOMNESS = 0.18;
-    const RAND_POW = 3;
-    const positions = new Float32Array(COUNT * 3);
-    const colors = new Float32Array(COUNT * 3);
-    const radii = new Float32Array(COUNT);
-    const branches = new Float32Array(COUNT);
-    const offsets = new Float32Array(COUNT * 3);
-    const inside  = new THREE.Color(0xffffff);
-    const outside = new THREE.Color(0x9bb6ff);
-    for (let i = 0; i < COUNT; i++) {
-      const r = Math.pow(Math.random(), 1.4) * RADIUS;
-      const branchAngle = (i % BRANCHES) / BRANCHES * Math.PI * 2;
-      radii[i] = r;
-      branches[i] = branchAngle;
-      const sign = () => (Math.random() < 0.5 ? 1 : -1);
-      offsets[i*3]   = Math.pow(Math.random(), RAND_POW) * sign() * RANDOMNESS * r;
-      offsets[i*3+1] = Math.pow(Math.random(), RAND_POW) * sign() * RANDOMNESS * r * 0.3;
-      offsets[i*3+2] = Math.pow(Math.random(), RAND_POW) * sign() * RANDOMNESS * r;
-      const c = inside.clone().lerp(outside, Math.min(1, r / RADIUS));
-      colors[i*3] = c.r; colors[i*3+1] = c.g; colors[i*3+2] = c.b;
+    const COUNT = 220;
+    const TRAIL = 18;
+    const positions = new Float32Array(COUNT * TRAIL * 3);
+    const indices  = new Uint16Array(COUNT * (TRAIL - 1) * 2);
+    let ii = 0;
+    for (let p = 0; p < COUNT; p++) {
+      for (let s = 0; s < TRAIL - 1; s++) {
+        indices[ii++] = p * TRAIL + s;
+        indices[ii++] = p * TRAIL + s + 1;
+      }
     }
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geom.setAttribute('color',    new THREE.BufferAttribute(colors, 3));
-
-    const material = new THREE.ShaderMaterial({
-      uniforms: { uReveal: { value: 0 }, uPixelRatio: { value: renderer.getPixelRatio() } },
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      vertexColors: true,
-      vertexShader: `
-        uniform float uReveal;
-        uniform float uPixelRatio;
-        varying vec3 vColor;
-        void main(){
-          vColor = color;
-          vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = 4.0 * uPixelRatio * (1.0 + uReveal);
-          gl_PointSize *= (1.0 / -mv.z);
-          gl_Position = projectionMatrix * mv;
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vColor;
-        void main(){
-          vec2 c = gl_PointCoord - 0.5;
-          float d = length(c);
-          float a = smoothstep(0.5, 0.0, d);
-          gl_FragColor = vec4(vColor, a);
-        }
-      `,
+    geom.setIndex(new THREE.BufferAttribute(indices, 1));
+    const material = new THREE.LineBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
     });
-    const points = new THREE.Points(geom, material);
-    points.scale.set(0.6, 0.18, 0.18);
-    group.add(points);
+    const lines = new THREE.LineSegments(geom, material);
+    group.add(lines);
+
+    const heads = new Float32Array(COUNT * 3);
+    const seedX = 0.85;
+    const reset = (i) => {
+      heads[i*3]     = (Math.random() - 0.5) * 2 * seedX;
+      heads[i*3 + 1] = (Math.random() - 0.5) * 0.18;
+      heads[i*3 + 2] = (Math.random() - 0.5) * 0.10;
+      for (let s = 0; s < TRAIL; s++) {
+        const k = (i*TRAIL + s) * 3;
+        positions[k]     = heads[i*3];
+        positions[k + 1] = heads[i*3 + 1];
+        positions[k + 2] = heads[i*3 + 2];
+      }
+    };
+    for (let i = 0; i < COUNT; i++) reset(i);
+
+    // Curl-noise via finite differences on ImprovedNoise (divergence-free).
+    const eps = 0.04;
+    const curl = (x, y, z) => {
+      const n1 = noise.noise(x, y + eps, z);
+      const n2 = noise.noise(x, y - eps, z);
+      const n3 = noise.noise(x + eps, y, z);
+      const n4 = noise.noise(x - eps, y, z);
+      return [(n1 - n2) / (2*eps), -(n3 - n4) / (2*eps)];
+    };
 
     const update = (dragX, t) => {
       const reveal = Math.min(dragX * 1.4, 1);
-      const spin = SPIN * (0.4 + reveal * 0.6);
+      const speed = 0.004 + reveal * 0.012;
+      const tt = t * 0.3;
       for (let i = 0; i < COUNT; i++) {
-        const r = radii[i] * (0.15 + reveal * 0.85);
-        const angle = branches[i] + r * spin + t * 0.18;
-        positions[i*3]     = Math.cos(angle) * r + offsets[i*3];
-        positions[i*3 + 1] = offsets[i*3 + 1] * (0.4 + reveal * 0.6);
-        positions[i*3 + 2] = Math.sin(angle) * r + offsets[i*3 + 2];
+        for (let s = 0; s < TRAIL - 1; s++) {
+          const dst = (i*TRAIL + s) * 3;
+          const src = (i*TRAIL + s + 1) * 3;
+          positions[dst]     = positions[src];
+          positions[dst + 1] = positions[src + 1];
+          positions[dst + 2] = positions[src + 2];
+        }
+        const hx = heads[i*3];
+        const hy = heads[i*3 + 1];
+        const [vx, vy] = curl(hx * 1.6, hy * 1.6, tt + i * 0.013);
+        heads[i*3]     = hx + vx * speed;
+        heads[i*3 + 1] = hy + vy * speed * 0.55;
+        heads[i*3 + 2] = Math.sin(t * 0.5 + i) * 0.05;
+        const tip = (i*TRAIL + TRAIL - 1) * 3;
+        positions[tip]     = heads[i*3];
+        positions[tip + 1] = heads[i*3 + 1];
+        positions[tip + 2] = heads[i*3 + 2];
+        if (Math.abs(heads[i*3]) > 1.0 || Math.abs(heads[i*3 + 1]) > 0.3) reset(i);
       }
       geom.attributes.position.needsUpdate = true;
-      material.uniforms.uReveal.value = reveal;
-      material.opacity = reveal;
-      points.rotation.x = 0.4 - reveal * 0.35;  // tilt toward camera as it grows
+      material.opacity = 0.6 * reveal;
     };
     return { group, update, dispose: () => { geom.dispose(); material.dispose(); } };
   };
 
-  // MODERNIZE — Wave grid wireframe. PlaneGeometry subdivided, vertex
-  // shader pushes z by a sum of sine waves modulated by drag. Pattern
-  // adapted from threejs.org/examples webgl_geometry_terrain combined
-  // with classic raging-sea vertex displacement.
-  const createModernize = () => {
+  // BLOOM — Phyllotaxis (golden angle 137.508°) spiral of dots, the
+  // packing pattern found in sunflowers and pine cones. Reveals from the
+  // outside inward as drag grows. Caption: Innovate every season.
+  const createBloom = () => {
     const group = new THREE.Group();
-    const geometry = new THREE.PlaneGeometry(1.6, 0.45, 96, 28);
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uDrag: { value: 0 },
-      },
-      transparent: true,
-      depthWrite: false,
-      wireframe: true,
-      vertexShader: `
-        uniform float uTime;
-        uniform float uDrag;
-        varying float vElev;
-        varying vec2  vUv;
-        void main(){
-          vec3 p = position;
-          // three layered sine waves, frequencies grow with drag
-          float w1 = sin(p.x * 5.5 + uTime * 1.4) * 0.06;
-          float w2 = sin(p.x * 2.3 - uTime * 0.9 + p.y * 3.0) * 0.04;
-          float w3 = sin(p.y * 4.0 + uTime * 0.6) * 0.025;
-          float elev = (w1 + w2 + w3) * uDrag;
-          p.z += elev;
-          vElev = elev;
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
-        }
-      `,
-      fragmentShader: `
-        varying float vElev;
-        varying vec2  vUv;
-        void main(){
-          // Brightness peaks at crests, fade at edges so the grid feels
-          // bounded rather than tiled.
-          float edge = smoothstep(0.0, 0.12, vUv.x) * smoothstep(1.0, 0.88, vUv.x);
-          float crest = clamp(0.4 + vElev * 6.0, 0.0, 1.2);
-          vec3 col = mix(vec3(0.78, 0.88, 1.0), vec3(1.0), crest);
-          gl_FragColor = vec4(col, edge * 0.95);
-        }
-      `,
-    });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.rotation.x = -0.55;
-    group.add(mesh);
-
-    const update = (dragX, t) => {
-      const reveal = Math.min(dragX * 1.4, 1);
-      material.uniforms.uTime.value = t;
-      material.uniforms.uDrag.value = reveal;
-      mesh.scale.setScalar(0.6 + reveal * 0.2);
-      mesh.position.y = -0.02;
-    };
-    return { group, update, dispose: () => { geometry.dispose(); material.dispose(); } };
-  };
-
-  // BLAZE — Particle storm. Points along seeded directions, exploding
-  // outward as dragX rises, with subtle continuous drift and twinkle.
-  const createBlaze = () => {
-    const group = new THREE.Group();
-    const COUNT = 1800;
+    const COUNT = 720;
+    const GOLDEN = Math.PI * (3 - Math.sqrt(5));
     const positions = new Float32Array(COUNT * 3);
-    const seedDir = new Float32Array(COUNT * 3);
-    const seedSpeed = new Float32Array(COUNT);
-    const seedSize = new Float32Array(COUNT);
+    const sizes = new Float32Array(COUNT);
+    const idxs  = new Float32Array(COUNT);
     for (let i = 0; i < COUNT; i++) {
-      // Random direction biased toward horizontal sweep
-      const theta = Math.random() * Math.PI * 2;
-      const phi   = (Math.random() - 0.5) * Math.PI * 0.7;
-      const dx = Math.cos(theta) * Math.cos(phi) * (1 + Math.random() * 0.6);
-      const dy = Math.sin(phi) * 0.6;
-      const dz = Math.sin(theta) * Math.cos(phi) * 0.4;
-      seedDir[i*3]   = dx;
-      seedDir[i*3+1] = dy;
-      seedDir[i*3+2] = dz;
-      seedSpeed[i] = 0.6 + Math.random() * 1.4;
-      seedSize[i] = 0.6 + Math.random() * 1.6;
+      const tNorm = (i + 0.5) / COUNT;
+      const r = Math.sqrt(tNorm);
+      const angle = i * GOLDEN;
+      positions[i*3]     = Math.cos(angle) * r * 0.85;
+      positions[i*3 + 1] = Math.sin(angle) * r * 0.22;
+      positions[i*3 + 2] = (Math.random() - 0.5) * 0.04;
+      sizes[i] = 1.4 + (1 - r) * 1.6 + Math.random() * 0.4;
+      idxs[i] = tNorm;
     }
-
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geom.setAttribute('aSize', new THREE.BufferAttribute(seedSize, 1));
-
+    geom.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
+    geom.setAttribute('aIdx',     new THREE.BufferAttribute(idxs, 1));
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        uTime:    { value: 0 },
-        uOpacity: { value: 1 },
+        uReveal: { value: 0 },
+        uTime:   { value: 0 },
+        uPixelRatio: { value: renderer.getPixelRatio() },
       },
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       vertexShader: `
         attribute float aSize;
+        attribute float aIdx;
+        uniform float uReveal;
         uniform float uTime;
-        varying float vTwinkle;
+        uniform float uPixelRatio;
+        varying float vAlpha;
         void main(){
+          float reveal = smoothstep(uReveal - 0.06, uReveal, 1.0 - aIdx);
+          float pulse = 0.85 + 0.15 * sin(uTime * 2.0 + aIdx * 18.0);
+          vAlpha = reveal * pulse;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = aSize * uPixelRatio * pulse * (50.0 / -mv.z);
           gl_Position = projectionMatrix * mv;
-          float life = clamp(length(position.xy) * 0.7, 0.0, 1.0);
-          vTwinkle = 0.6 + 0.4 * sin(uTime * 4.0 + position.x * 12.0 + position.y * 7.0);
-          gl_PointSize = aSize * (40.0 / -mv.z) * (1.0 - life * 0.45) * vTwinkle;
         }
       `,
       fragmentShader: `
-        uniform float uOpacity;
-        varying float vTwinkle;
+        varying float vAlpha;
         void main(){
-          vec2 c = gl_PointCoord - vec2(0.5);
+          vec2 c = gl_PointCoord - 0.5;
           float d = length(c);
-          if (d > 0.5) discard;
-          float a = smoothstep(0.5, 0.0, d) * uOpacity * vTwinkle;
+          float a = smoothstep(0.5, 0.05, d) * vAlpha;
           gl_FragColor = vec4(1.0, 1.0, 1.0, a);
         }
       `,
     });
-
     const points = new THREE.Points(geom, material);
     group.add(points);
 
     const update = (dragX, t) => {
       const reveal = Math.min(dragX * 1.4, 1);
-      const expand = 0.05 + dragX * 1.0;
-      const drift = t * 0.25;
-      for (let i = 0; i < COUNT; i++) {
-        const r = expand * seedSpeed[i];
-        const a = drift * 0.4 + i * 0.001;
-        const ca = Math.cos(a), sa = Math.sin(a);
-        const dx = seedDir[i*3]     * r;
-        // Squash vertical scatter so particles stay roughly in the band
-        const dy = seedDir[i*3+1]   * r * 0.18 * (0.6 + 0.4 * Math.sin(t + i));
-        const dz = seedDir[i*3+2]   * r;
-        positions[i*3]   = dx * ca - dz * sa;
-        positions[i*3+1] = dy;
-        positions[i*3+2] = dx * sa + dz * ca;
-      }
-      geom.attributes.position.needsUpdate = true;
+      material.uniforms.uReveal.value = reveal;
       material.uniforms.uTime.value = t;
-      material.uniforms.uOpacity.value = reveal;
+      points.rotation.z = t * 0.18 + reveal * 0.4;
     };
     return { group, update, dispose: () => { geom.dispose(); material.dispose(); } };
   };
 
-  // BUILD — InstancedMesh of small cubes that assemble into a horizontal
-  // 3D grid stretching across the band as drag progresses.
-  const createBuild = () => {
+  // ATTRACT — Lorenz strange attractor (σ=10, ρ=28, β=8/3). Integrates
+  // the famous chaotic ODE and traces the trajectory as a 3D line, with
+  // a glowing "probe" point at the leading edge. Caption: Maximize every
+  // signal.
+  const createAttract = () => {
     const group = new THREE.Group();
-    const COLS = 14, ROWS = 3, DEPTH = 3;
-    const COUNT = COLS * ROWS * DEPTH;
-    const geometry = new THREE.BoxGeometry(0.025, 0.025, 0.025);
-    const material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      roughness: 0.35,
-      metalness: 0.15,
-      transparent: true,
-    });
-    const mesh = new THREE.InstancedMesh(geometry, material, COUNT);
-    group.add(mesh);
-
-    const home = new Float32Array(COUNT * 3);
-    const start = new Float32Array(COUNT * 3);
-    const seed = new Float32Array(COUNT);
-    let i = 0;
-    for (let x = 0; x < COLS; x++) for (let y = 0; y < ROWS; y++) for (let z = 0; z < DEPTH; z++) {
-      home[i*3]   = (x - (COLS-1)/2) * 0.085;
-      home[i*3+1] = (y - (ROWS-1)/2) * 0.04;
-      home[i*3+2] = (z - (DEPTH-1)/2) * 0.04;
-      start[i*3]   = (Math.random() - 0.5) * 3;
-      start[i*3+1] = (Math.random() - 0.5) * 0.5;
-      start[i*3+2] = (Math.random() - 0.5) * 0.5;
-      seed[i] = Math.random();
-      i++;
+    const STEPS = 4500;
+    const positions = new Float32Array(STEPS * 3);
+    let lx = 0.1 + Math.random() * 0.2;
+    let ly = Math.random() * 0.2;
+    let lz = Math.random() * 0.2;
+    const sigma = 10, rho = 28, beta = 8 / 3;
+    const dt = 0.0035;
+    const SCALE = 0.022;
+    for (let i = 0; i < STEPS; i++) {
+      const dx = sigma * (ly - lx);
+      const dy = lx * (rho - lz) - ly;
+      const dz = lx * ly - beta * lz;
+      lx += dx * dt; ly += dy * dt; lz += dz * dt;
+      positions[i*3]     = lx * SCALE;
+      positions[i*3 + 1] = ly * SCALE;
+      positions[i*3 + 2] = (lz - 25) * SCALE;
     }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setDrawRange(0, 0);
+    const material = new THREE.LineBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
+      blending: THREE.AdditiveBlending, depthWrite: false,
+    });
+    const line = new THREE.Line(geom, material);
+    line.scale.set(0.45, 0.18, 0.18);
+    group.add(line);
 
-    const dummy = new THREE.Object3D();
+    const tipGeom = new THREE.BufferGeometry();
+    tipGeom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
+    const tipMat = new THREE.PointsMaterial({
+      color: 0xffffff, size: 6, sizeAttenuation: false,
+      transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const tip = new THREE.Points(tipGeom, tipMat);
+    tip.scale.copy(line.scale);
+    group.add(tip);
+
     const update = (dragX, t) => {
       const reveal = Math.min(dragX * 1.4, 1);
-      const eased = 1 - Math.pow(1 - Math.min(dragX, 1), 3);
-      for (let k = 0; k < COUNT; k++) {
-        const stagger = seed[k] * 0.5;
-        const local = Math.max(0, Math.min(1, (eased - stagger) / (1 - stagger)));
-        const px = start[k*3]   + (home[k*3]   - start[k*3])   * local;
-        const py = start[k*3+1] + (home[k*3+1] - start[k*3+1]) * local;
-        const pz = start[k*3+2] + (home[k*3+2] - start[k*3+2]) * local;
-        dummy.position.set(px, py, pz);
-        dummy.rotation.set(t * 0.3 + seed[k] * 6, t * 0.25 + seed[k] * 4, 0);
-        const s = 0.4 + 0.6 * local;
-        dummy.scale.setScalar(s);
-        dummy.updateMatrix();
-        mesh.setMatrixAt(k, dummy.matrix);
-      }
-      mesh.instanceMatrix.needsUpdate = true;
+      const visible = Math.floor(STEPS * reveal);
+      geom.setDrawRange(0, visible);
+      const idx = Math.max(0, visible - 1);
+      tipGeom.attributes.position.array[0] = positions[idx*3];
+      tipGeom.attributes.position.array[1] = positions[idx*3 + 1];
+      tipGeom.attributes.position.array[2] = positions[idx*3 + 2];
+      tipGeom.attributes.position.needsUpdate = true;
+      tipMat.opacity = reveal;
       material.opacity = reveal;
-      group.rotation.y = Math.sin(t * 0.15) * 0.15;
-      group.rotation.x = Math.cos(t * 0.12) * 0.05;
+      line.rotation.y = t * 0.25;
+      tip.rotation.y = line.rotation.y;
     };
-    return { group, update, dispose: () => { geometry.dispose(); material.dispose(); } };
+    return { group, update, dispose: () => { geom.dispose(); material.dispose(); tipGeom.dispose(); tipMat.dispose(); } };
   };
 
-  // INVENT — Displaced icosahedron. Vertex shader pushes vertices along
-  // their normal using simplex-like noise; drag amplifies displacement and
-  // shifts the noise frequency, making the form "evolve".
-  const createInvent = () => {
+  // WEAVE — Truchet tiles. Each cell randomly picks one of two
+  // quarter-circle arc configurations (NE-SW or NW-SE) so arcs always
+  // connect cleanly across cell borders, producing an emergent maze of
+  // curving paths. Caption: Manage every connection.
+  const createWeave = () => {
     const group = new THREE.Group();
-    const geometry = new THREE.IcosahedronGeometry(0.55, 64);
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        uTime: { value: 0 },
-        uDrag: { value: 0 },
-      },
-      transparent: true,
-      vertexShader: `
-        uniform float uTime;
-        uniform float uDrag;
-        varying vec3 vNormal;
-        varying float vNoise;
-        // 3D simplex-noise (Ashima Arts, public domain)
-        vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x,289.0);}
-        vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
-        float snoise(vec3 v){
-          const vec2 C=vec2(1.0/6.0,1.0/3.0); const vec4 D=vec4(0.0,0.5,1.0,2.0);
-          vec3 i=floor(v+dot(v,C.yyy));
-          vec3 x0=v-i+dot(i,C.xxx);
-          vec3 g=step(x0.yzx,x0.xyz);
-          vec3 l=1.0-g;
-          vec3 i1=min(g.xyz,l.zxy);
-          vec3 i2=max(g.xyz,l.zxy);
-          vec3 x1=x0-i1+C.xxx;
-          vec3 x2=x0-i2+C.yyy;
-          vec3 x3=x0-D.yyy;
-          i=mod(i,289.0);
-          vec4 p=permute(permute(permute(i.z+vec4(0.0,i1.z,i2.z,1.0))+i.y+vec4(0.0,i1.y,i2.y,1.0))+i.x+vec4(0.0,i1.x,i2.x,1.0));
-          float n_=1.0/7.0;
-          vec3 ns=n_*D.wyz-D.xzx;
-          vec4 j=p-49.0*floor(p*ns.z*ns.z);
-          vec4 x_=floor(j*ns.z);
-          vec4 y_=floor(j-7.0*x_);
-          vec4 x=x_*ns.x+ns.yyyy;
-          vec4 y=y_*ns.x+ns.yyyy;
-          vec4 h=1.0-abs(x)-abs(y);
-          vec4 b0=vec4(x.xy,y.xy);
-          vec4 b1=vec4(x.zw,y.zw);
-          vec4 s0=floor(b0)*2.0+1.0;
-          vec4 s1=floor(b1)*2.0+1.0;
-          vec4 sh=-step(h,vec4(0.0));
-          vec4 a0=b0.xzyw+s0.xzyw*sh.xxyy;
-          vec4 a1=b1.xzyw+s1.xzyw*sh.zzww;
-          vec3 p0=vec3(a0.xy,h.x);
-          vec3 p1=vec3(a0.zw,h.y);
-          vec3 p2=vec3(a1.xy,h.z);
-          vec3 p3=vec3(a1.zw,h.w);
-          vec4 norm=taylorInvSqrt(vec4(dot(p0,p0),dot(p1,p1),dot(p2,p2),dot(p3,p3)));
-          p0*=norm.x; p1*=norm.y; p2*=norm.z; p3*=norm.w;
-          vec4 m=max(0.6-vec4(dot(x0,x0),dot(x1,x1),dot(x2,x2),dot(x3,x3)),0.0);
-          m=m*m;
-          return 42.0*dot(m*m,vec4(dot(p0,x0),dot(p1,x1),dot(p2,x2),dot(p3,x3)));
+    const COLS = 18;
+    const ROWS = 5;
+    const cellW = 1.7 / COLS;
+    const cellH = 0.34 / ROWS;
+    const cellR = Math.min(cellW, cellH) / 2;
+    const SEG = 18;
+    const verts = [];
+    const idxs = [];
+    let v = 0;
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const cx = (c + 0.5 - COLS/2) * cellW;
+        const cy = (r + 0.5 - ROWS/2) * cellH;
+        const variant = Math.random() < 0.5 ? 0 : 1;
+        const arc = (centerX, centerY, a0, a1) => {
+          for (let s = 0; s <= SEG; s++) {
+            const a = a0 + (a1 - a0) * s / SEG;
+            verts.push(centerX + Math.cos(a) * cellR, centerY + Math.sin(a) * cellR, 0);
+            if (s > 0) { idxs.push(v - 1, v); }
+            v++;
+          }
+        };
+        if (variant === 0) {
+          arc(cx + cellW/2, cy + cellH/2, Math.PI, Math.PI * 1.5);
+          arc(cx - cellW/2, cy - cellH/2, 0, Math.PI * 0.5);
+        } else {
+          arc(cx - cellW/2, cy + cellH/2, Math.PI * 1.5, Math.PI * 2);
+          arc(cx + cellW/2, cy - cellH/2, Math.PI * 0.5, Math.PI);
         }
-        void main(){
-          float freq = 1.6 + uDrag * 1.8;
-          float amp  = 0.05 + uDrag * 0.55;
-          float n = snoise(position * freq + uTime * 0.4);
-          float n2 = snoise(position * (freq * 2.1) - uTime * 0.6) * 0.5;
-          vNoise = n + n2;
-          vec3 displaced = position + normal * vNoise * amp;
-          vNormal = normalize(normalMatrix * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vNormal;
-        varying float vNoise;
-        void main(){
-          // Soft white with subtle iridescence based on normal + noise.
-          vec3 base = vec3(1.0);
-          float fresnel = pow(1.0 - abs(vNormal.z), 2.0);
-          vec3 tint = mix(vec3(0.85, 0.92, 1.0), vec3(1.0, 0.95, 0.85), 0.5 + 0.5 * vNoise);
-          vec3 col = mix(base, tint, fresnel * 0.7);
-          gl_FragColor = vec4(col, 0.94);
-        }
-      `,
+      }
+    }
+    const positions = new Float32Array(verts);
+    const indices  = new Uint16Array(idxs);
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setIndex(new THREE.BufferAttribute(indices, 1));
+    geom.setDrawRange(0, 0);
+    const material = new THREE.LineBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0,
     });
-    const mesh = new THREE.Mesh(geometry, material);
-    group.add(mesh);
+    const lines = new THREE.LineSegments(geom, material);
+    group.add(lines);
 
+    const TOTAL = indices.length;
     const update = (dragX, t) => {
-      material.uniforms.uTime.value = t;
-      material.uniforms.uDrag.value = Math.min(1, dragX);
       const reveal = Math.min(dragX * 1.4, 1);
-      mesh.scale.setScalar(0.18 * reveal + 0.001);
-      mesh.rotation.y = t * 0.35;
-      mesh.rotation.x = Math.sin(t * 0.4) * 0.25;
+      const ease = 1 - Math.pow(1 - reveal, 3);
+      geom.setDrawRange(0, Math.floor(TOTAL * ease));
+      material.opacity = 0.85 * reveal;
+      lines.rotation.z = Math.sin(t * 0.4) * 0.015;
     };
-    return { group, update, dispose: () => { geometry.dispose(); material.dispose(); } };
+    return { group, update, dispose: () => { geom.dispose(); material.dispose(); } };
   };
 
   // ---------------------------------------------------------------------
@@ -1710,11 +1607,10 @@
   // it's requested and kept in memory after.
   // ---------------------------------------------------------------------
   const factories = {
-    blaze:     createBlaze,
-    build:     createBuild,
-    invent:    createInvent,
-    scale:     createScale,
-    modernize: createModernize,
+    flow:    createFlow,
+    bloom:   createBloom,
+    attract: createAttract,
+    weave:   createWeave,
   };
   const effects = {};
   let active = null;
@@ -1755,7 +1651,7 @@
   };
 
   // Default to first variant so something is rendering before any drag.
-  setEffect('blaze');
+  setEffect('flow');
   tick();
 
   window.__three = { setEffect, update, setOrigin, resize, _scene: scene, _camera: camera, _renderer: renderer, _THREE: THREE, _effects: effects };

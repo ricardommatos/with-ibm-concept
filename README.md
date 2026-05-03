@@ -5,8 +5,8 @@ Interactive logo composition exploring the **WITH IBM** mark.
 ## Live demos
 
 - **v1** — geometric variants (thin, capsule with media, circles, waveform): [ricardommatos.github.io/with-ibm-concept](https://ricardommatos.github.io/with-ibm-concept/)
-- **v2** — brand-story variants (forest, pulse, helix, constellation) with matching captions: [ricardommatos.github.io/with-ibm-concept/v2.html](https://ricardommatos.github.io/with-ibm-concept/v2.html)
-- **v3** — Three.js variants (boost, blaze, build, invent) with brand-verb captions: [ricardommatos.github.io/with-ibm-concept/v3.html](https://ricardommatos.github.io/with-ibm-concept/v3.html)
+- **v2** — brand-story variants (forest, pulse, helix, constellation): [ricardommatos.github.io/with-ibm-concept/v2.html](https://ricardommatos.github.io/with-ibm-concept/v2.html)
+- **v3** — Three.js generative-art variants (flow, bloom, attract, weave): [ricardommatos.github.io/with-ibm-concept/v3.html](https://ricardommatos.github.io/with-ibm-concept/v3.html)
 
 ## How to use
 
@@ -27,17 +27,17 @@ Same interaction model. Four conceptual variants tied to IBM client stories:
 - **helix** — *Discovering the next medical miracle with IBM* (Moderna)
 - **constellation** — *Pinpointing critical food aid with IBM* (UN World Food Programme)
 
-Caption swaps in sync with the variant.
-
 ### v3 features
 
-Three.js scene rendered in a canvas behind the SVG. Four 3D effects tied to IBM brand verbs:
+Three.js scene rendered in a canvas behind the SVG. Four generative-art effects, each tied to an IBM brand verb:
 
-- **boost** — marching-cubes metaballs that morph and orbit
-- **blaze** — particle storm exploding outward
-- **build** — instanced cube cluster assembling
-- **invent** — displaced sphere with simplex-noise vertex shader
+- **flow** — *Automate every flow* — curl-noise particle flow field with trails
+- **bloom** — *Innovate every season* — phyllotaxis (golden-angle) spiral revealing inside-out
+- **attract** — *Maximize every signal* — Lorenz strange attractor traced in 3D with a glowing probe tip
+- **weave** — *Manage every connection* — Truchet tile pattern of connecting arc paths
+
+Each is seeded so two drags rarely look identical.
 
 ## Stack
 
-Pure HTML + SVG + JS, no build step. v3 lazy-loads `three@0.160.0` from jsDelivr via importmap. MediaPipe Tasks Vision lazy-loaded only when hand mode is activated.
+Pure HTML + SVG + JS, no build step. v3 lazy-loads `three@0.160.0` (with `ImprovedNoise` from `three/addons/math`) via importmap. MediaPipe Tasks Vision lazy-loaded only when hand mode is activated.
