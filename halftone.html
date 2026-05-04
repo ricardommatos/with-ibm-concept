@@ -463,35 +463,38 @@
     // Determine the source viewBox; fall back to width/height if missing.
     let vb = root.getAttribute('viewBox');
     if (!vb) {
-      const wAttr = root.getAttribute('width')  || '100';
-      const hAttr = root.getAttribute('height') || '100';
+      const wAttr = parseFloat(root.getAttribute('width'))  || 100;
+      const hAttr = parseFloat(root.getAttribute('height')) || 100;
       vb = `0 0 ${wAttr} ${hAttr}`;
     }
-    // Serialise inner content (children of <svg>) to inject into <symbol>.
+    const [vbX, vbY, vbW, vbH] = vb.split(/[\s,]+/).map(parseFloat);
+
+    // Serialise inner content (children of <svg>) to inject into the defs <g>.
     const serializer = new XMLSerializer();
     const inner = Array.from(root.childNodes)
       .map(n => serializer.serializeToString(n))
       .join('');
 
-    // Collect <use> tags from the cell walk.
+    // Build <use> tags via translate + scale instead of x/y/width/height.
+    // Reason: <symbol viewBox> + <use width/height> behaves inconsistently
+    // across renderers (Figma in particular collapses use rects to their
+    // raw bounding box). Transform-based <use> is universally supported.
     const uses = [];
     forEachCell(w, h, (cx, cy, size) => {
-      const x = (cx - size / 2).toFixed(2);
-      const y = (cy - size / 2).toFixed(2);
-      const s = size.toFixed(2);
-      uses.push(`<use href="#stamp" x="${x}" y="${y}" width="${s}" height="${s}"/>`);
+      const scale = size / Math.max(vbW, vbH);
+      const tx = (cx - (vbX + vbW / 2) * scale).toFixed(2);
+      const ty = (cy - (vbY + vbH / 2) * scale).toFixed(2);
+      uses.push(`<use href="#stamp" transform="translate(${tx} ${ty}) scale(${scale.toFixed(5)})"/>`);
     });
 
-    // If nothing in the source SVG declared a fill, set it on <symbol>'s
-    // wrapper <g> so <use> instances inherit colour cleanly.
+    // If nothing in the source SVG declared a fill, set it on the defs <g>
+    // so each <use> inherits the chosen colour.
     const fillWrap = anyHasFill ? '' : ` fill="${state.color}"`;
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
-  <rect width="100%" height="100%" fill="${state.background}"/>
-  <defs>
-    <symbol id="stamp" viewBox="${vb}" overflow="visible"><g${fillWrap}>${inner}</g></symbol>
-  </defs>
+  <rect width="${w}" height="${h}" fill="${state.background}"/>
+  <defs><g id="stamp"${fillWrap}>${inner}</g></defs>
   ${uses.join('\n  ')}
 </svg>`;
   };
