@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WITH — IBM · halftone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@200;300;400;500&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ibm-blue: #0F62FE;
+    --white: #FFFFFF;
+    --plex-sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --plex-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+    --plex-serif: 'IBM Plex Serif', Georgia, serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: var(--ibm-blue);
+    color: var(--white);
+    font-family: var(--plex-sans);
+    font-weight: 300;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .composition {
+    position: relative;
+    width: min(100vw, 100vh);
+    height: min(100vw, 100vh);
+    max-width: 1080px;
+    max-height: 1080px;
+  }
+
+  .canvas-wrap {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas#output {
+    max-width: 100%;
+    max-height: 100%;
+    background: var(--ibm-blue);
+    display: block;
+  }
+
+  .corner-tag {
+    position: absolute;
+    top: 24px;
+    left: 24px;
+    font-family: var(--plex-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.5);
+    pointer-events: none;
+  }
+
+  .controls {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 230px;
+    padding: 16px;
+    background: rgba(0,0,0,0.10);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 16px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+  .controls .group { display: flex; flex-direction: column; gap: 6px; }
+  .controls label {
+    font-family: var(--plex-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.65);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .controls label span.value {
+    font-feature-settings: 'tnum';
+    color: rgba(255,255,255,0.85);
+    letter-spacing: 0;
+  }
+  .controls input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 2px;
+    background: rgba(255,255,255,0.35);
+    outline: none;
+    cursor: pointer;
+    border-radius: 999px;
+  }
+  .controls input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    background: var(--white);
+    border-radius: 50%;
+    cursor: pointer;
+  }
+  .controls input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    background: var(--white);
+    border-radius: 50%;
+    border: none;
+    cursor: pointer;
+  }
+  .controls .row { display: flex; gap: 6px; }
+  .controls button, .controls .seg-btn {
+    flex: 1;
+    appearance: none;
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.30);
+    color: rgba(255,255,255,0.85);
+    font-family: var(--plex-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    padding: 8px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 180ms ease, border-color 180ms ease, background 180ms ease;
+  }
+  .controls button:hover, .controls .seg-btn:hover {
+    color: var(--white);
+    border-color: var(--white);
+    background: rgba(255,255,255,0.06);
+  }
+  .controls .seg-btn.active {
+    color: var(--ibm-blue);
+    background: var(--white);
+    border-color: var(--white);
+  }
+  .controls .seg-btn.active:hover {
+    color: var(--ibm-blue);
+    background: var(--white);
+  }
+  .controls .file-pill {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .controls .file-pill .name {
+    font-family: var(--plex-mono);
+    font-size: 9px;
+    letter-spacing: 0.10em;
+    color: rgba(255,255,255,0.5);
+    text-transform: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .controls hr {
+    border: 0;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    margin: 2px 0;
+  }
+  .empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.55);
+    pointer-events: none;
+    font-family: var(--plex-mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .empty-state.hidden { opacity: 0; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="composition">
+    <div class="canvas-wrap">
+      <canvas id="output" width="1080" height="1080"></canvas>
+    </div>
+    <div class="empty-state" id="emptyState">
+      <div>upload an image to begin</div>
+      <div style="opacity:.6">defaults to a circle pattern</div>
+    </div>
+
+    <div class="corner-tag">WITH — IBM · halftone studio</div>
+
+    <div class="controls">
+      <div class="group">
+        <button id="loadImage">+ Image</button>
+        <div class="file-pill"><span class="name" id="imageName">—</span></div>
+      </div>
+      <div class="group">
+        <button id="loadSvg">+ Pattern (SVG)</button>
+        <div class="file-pill"><span class="name" id="svgName">circle (default)</span></div>
+      </div>
+      <hr>
+      <div class="group">
+        <label>Density <span class="value" id="densityVal">60</span></label>
+        <input type="range" id="density" min="16" max="160" value="60">
+      </div>
+      <div class="group">
+        <label>Size <span class="value" id="sizeVal">110%</span></label>
+        <input type="range" id="size" min="40" max="200" value="110">
+      </div>
+      <div class="group">
+        <label>Min size <span class="value" id="minVal">0%</span></label>
+        <input type="range" id="min" min="0" max="100" value="0">
+      </div>
+      <div class="group">
+        <label>Gamma <span class="value" id="gammaVal">1.0</span></label>
+        <input type="range" id="gamma" min="30" max="250" value="100">
+      </div>
+      <hr>
+      <div class="group">
+        <label>Map</label>
+        <div class="row">
+          <button class="seg-btn active" id="mapDark">Dark = big</button>
+          <button class="seg-btn" id="mapLight">Light = big</button>
+        </div>
+      </div>
+      <div class="group">
+        <label>Color</label>
+        <div class="row">
+          <button class="seg-btn active" id="colorWhite">White</button>
+          <button class="seg-btn" id="colorBlack">Black</button>
+        </div>
+      </div>
+      <div class="group">
+        <label>Background</label>
+        <div class="row">
+          <button class="seg-btn active" id="bgBlue">IBM blue</button>
+          <button class="seg-btn" id="bgWhite">White</button>
+          <button class="seg-btn" id="bgBlack">Black</button>
+        </div>
+      </div>
+      <hr>
+      <button id="exportPng">Export PNG</button>
+    </div>
+
+    <input type="file" id="imageInput" accept="image/*" hidden>
+    <input type="file" id="svgInput" accept=".svg,image/svg+xml" hidden>
+  </div>
+</div>
+
+<script>
+(() => {
+  // --- DOM refs --------------------------------------------------------
+  const out = document.getElementById('output');
+  const ctx = out.getContext('2d');
+  const emptyState = document.getElementById('emptyState');
+  const imageInput = document.getElementById('imageInput');
+  const svgInput = document.getElementById('svgInput');
+  const loadImageBtn = document.getElementById('loadImage');
+  const loadSvgBtn = document.getElementById('loadSvg');
+  const imageName = document.getElementById('imageName');
+  const svgName = document.getElementById('svgName');
+  const densityInput = document.getElementById('density');
+  const sizeInput = document.getElementById('size');
+  const minInput = document.getElementById('min');
+  const gammaInput = document.getElementById('gamma');
+  const densityVal = document.getElementById('densityVal');
+  const sizeVal = document.getElementById('sizeVal');
+  const minVal = document.getElementById('minVal');
+  const gammaVal = document.getElementById('gammaVal');
+  const mapDarkBtn = document.getElementById('mapDark');
+  const mapLightBtn = document.getElementById('mapLight');
+  const colorWhiteBtn = document.getElementById('colorWhite');
+  const colorBlackBtn = document.getElementById('colorBlack');
+  const bgBlueBtn = document.getElementById('bgBlue');
+  const bgWhiteBtn = document.getElementById('bgWhite');
+  const bgBlackBtn = document.getElementById('bgBlack');
+  const exportBtn = document.getElementById('exportPng');
+
+  // --- State -----------------------------------------------------------
+  // Default pattern: a simple circle. Replaced when user uploads an SVG.
+  const DEFAULT_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="50" cy="50" r="48"/></svg>`;
+
+  const state = {
+    sourceImage: null,           // <img> with the source photo
+    svgText: DEFAULT_SVG,        // raw SVG markup (uncoloured)
+    stampImage: null,            // <img> of the recoloured SVG, ready to drawImage
+    density: 60,
+    sizeFactor: 1.10,
+    minFactor: 0.0,
+    gamma: 1.0,
+    mapMode: 'dark',             // 'dark' (dark→big) or 'light' (light→big)
+    color: '#FFFFFF',
+    background: '#0F62FE',
+    pendingRender: null,
+  };
+
+  // --- Helpers ---------------------------------------------------------
+  const setActive = (btn, group) => {
+    group.forEach(b => b.classList.toggle('active', b === btn));
+  };
+
+  // Recolour all paint attributes in the SVG to a single colour, then
+  // rasterise via Image. Returns a Promise that resolves when the image
+  // is ready to drawImage().
+  const buildStamp = (svgText, color) => new Promise((resolve, reject) => {
+    let serialized;
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(svgText, 'image/svg+xml');
+      const errNode = doc.querySelector('parsererror');
+      if (errNode) throw new Error('SVG parse error');
+      const root = doc.documentElement;
+      // Ensure the SVG has its xmlns so blob URL renders cross-context.
+      if (!root.hasAttribute('xmlns')) root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      // Set every fill / stroke that isn't 'none' to the requested colour.
+      const all = doc.querySelectorAll('*');
+      all.forEach(el => {
+        const f = el.getAttribute('fill');
+        if (f && f.toLowerCase() !== 'none') el.setAttribute('fill', color);
+        const s = el.getAttribute('stroke');
+        if (s && s.toLowerCase() !== 'none') el.setAttribute('stroke', color);
+      });
+      // Inject default fill on root if no element declared one
+      const anyHasFill = Array.from(all).some(e => {
+        const f = e.getAttribute('fill');
+        return f && f.toLowerCase() !== 'none';
+      });
+      if (!anyHasFill) root.setAttribute('fill', color);
+      serialized = new XMLSerializer().serializeToString(doc);
+    } catch (e) { reject(e); return; }
+
+    const blob = new Blob([serialized], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+
+  // --- Render ----------------------------------------------------------
+  const scheduleRender = () => {
+    if (state.pendingRender) return;
+    state.pendingRender = requestAnimationFrame(() => {
+      state.pendingRender = null;
+      render();
+    });
+  };
+
+  const render = () => {
+    // Match output canvas to image aspect, capped to 1080 on longest side
+    const src = state.sourceImage;
+    let outW = 1080, outH = 1080;
+    if (src) {
+      const ar = src.naturalWidth / src.naturalHeight;
+      if (ar >= 1) { outW = 1080; outH = Math.round(1080 / ar); }
+      else { outH = 1080; outW = Math.round(1080 * ar); }
+    }
+    if (out.width !== outW)  out.width  = outW;
+    if (out.height !== outH) out.height = outH;
+
+    // Background
+    ctx.fillStyle = state.background;
+    ctx.fillRect(0, 0, out.width, out.height);
+
+    if (!src || !state.stampImage) {
+      emptyState.classList.toggle('hidden', !!src);
+      return;
+    }
+    emptyState.classList.add('hidden');
+
+    // Sample source image at grid resolution
+    const cellsX = Math.max(4, Math.round(state.density));
+    const cellsY = Math.max(4, Math.round(state.density / (out.width / out.height)));
+    const sample = document.createElement('canvas');
+    sample.width = cellsX;
+    sample.height = cellsY;
+    const sctx = sample.getContext('2d');
+    sctx.imageSmoothingEnabled = true;
+    sctx.imageSmoothingQuality = 'high';
+    sctx.drawImage(src, 0, 0, cellsX, cellsY);
+    const data = sctx.getImageData(0, 0, cellsX, cellsY).data;
+
+    const cellW = out.width  / cellsX;
+    const cellH = out.height / cellsY;
+    const cellSize = Math.min(cellW, cellH);
+    const stamp = state.stampImage;
+
+    for (let j = 0; j < cellsY; j++) {
+      for (let i = 0; i < cellsX; i++) {
+        const idx = (j * cellsX + i) * 4;
+        const r = data[idx], g = data[idx + 1], b = data[idx + 2];
+        // Perceptual luminance (Rec. 709)
+        const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+        // Map to factor [0..1] depending on mode + gamma
+        let v = state.mapMode === 'dark' ? (1 - lum) : lum;
+        v = Math.pow(v, state.gamma);
+        v = state.minFactor + (1 - state.minFactor) * v;
+        const size = cellSize * state.sizeFactor * v;
+        if (size < 0.6) continue;
+        const cx = (i + 0.5) * cellW;
+        const cy = (j + 0.5) * cellH;
+        ctx.drawImage(stamp, cx - size / 2, cy - size / 2, size, size);
+      }
+    }
+  };
+
+  // --- File loaders ----------------------------------------------------
+  loadImageBtn.addEventListener('click', () => imageInput.click());
+  imageInput.addEventListener('change', (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const img = new Image();
+    img.onload = () => {
+      state.sourceImage = img;
+      imageName.textContent = f.name;
+      scheduleRender();
+    };
+    img.src = url;
+    e.target.value = '';
+  });
+
+  loadSvgBtn.addEventListener('click', () => svgInput.click());
+  svgInput.addEventListener('change', async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const text = await f.text();
+    try {
+      state.svgText = text;
+      state.stampImage = await buildStamp(state.svgText, state.color);
+      svgName.textContent = f.name;
+      scheduleRender();
+    } catch (err) {
+      alert('Could not load SVG: ' + (err?.message || err));
+    }
+    e.target.value = '';
+  });
+
+  // --- Sliders ---------------------------------------------------------
+  densityInput.addEventListener('input', () => {
+    state.density = +densityInput.value;
+    densityVal.textContent = state.density;
+    scheduleRender();
+  });
+  sizeInput.addEventListener('input', () => {
+    state.sizeFactor = +sizeInput.value / 100;
+    sizeVal.textContent = sizeInput.value + '%';
+    scheduleRender();
+  });
+  minInput.addEventListener('input', () => {
+    state.minFactor = +minInput.value / 100;
+    minVal.textContent = minInput.value + '%';
+    scheduleRender();
+  });
+  gammaInput.addEventListener('input', () => {
+    state.gamma = +gammaInput.value / 100;
+    gammaVal.textContent = state.gamma.toFixed(2);
+    scheduleRender();
+  });
+
+  // --- Toggle groups ---------------------------------------------------
+  const mapBtns = [mapDarkBtn, mapLightBtn];
+  mapDarkBtn.addEventListener('click', () => {
+    state.mapMode = 'dark'; setActive(mapDarkBtn, mapBtns); scheduleRender();
+  });
+  mapLightBtn.addEventListener('click', () => {
+    state.mapMode = 'light'; setActive(mapLightBtn, mapBtns); scheduleRender();
+  });
+
+  const colorBtns = [colorWhiteBtn, colorBlackBtn];
+  const setColor = async (color, btn) => {
+    state.color = color;
+    setActive(btn, colorBtns);
+    state.stampImage = await buildStamp(state.svgText, color);
+    scheduleRender();
+  };
+  colorWhiteBtn.addEventListener('click', () => setColor('#FFFFFF', colorWhiteBtn));
+  colorBlackBtn.addEventListener('click', () => setColor('#000000', colorBlackBtn));
+
+  const bgBtns = [bgBlueBtn, bgWhiteBtn, bgBlackBtn];
+  bgBlueBtn.addEventListener('click', () => {
+    state.background = '#0F62FE'; setActive(bgBlueBtn, bgBtns); scheduleRender();
+  });
+  bgWhiteBtn.addEventListener('click', () => {
+    state.background = '#FFFFFF'; setActive(bgWhiteBtn, bgBtns); scheduleRender();
+  });
+  bgBlackBtn.addEventListener('click', () => {
+    state.background = '#000000'; setActive(bgBlackBtn, bgBtns); scheduleRender();
+  });
+
+  // --- Export ----------------------------------------------------------
+  exportBtn.addEventListener('click', () => {
+    out.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'with-ibm-halftone.png';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }, 'image/png');
+  });
+
+  // --- Boot ------------------------------------------------------------
+  (async () => {
+    state.stampImage = await buildStamp(state.svgText, state.color);
+    scheduleRender();
+  })();
+})();
+</script>
+</body>
+</html>

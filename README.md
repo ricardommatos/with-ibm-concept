@@ -10,6 +10,7 @@ Interactive logo composition exploring the **WITH IBM** mark.
 - **v4** — openprocessing-style art (stipple, ribbons, growth, ink): [v4.html](https://ricardommatos.github.io/with-ibm-concept/v4.html)
 - **v5** — voxel physics (drop, rise, swarm), Codrops Pixel Voxel Drop: [v5.html](https://ricardommatos.github.io/with-ibm-concept/v5.html)
 - **v6** — GPU shaders (rotate, droplets), Codrops Rotating Slideshow + interactive-droplets: [v6.html](https://ricardommatos.github.io/with-ibm-concept/v6.html)
+- **halftone** — small standalone studio: rebuild a photo as a grid of stamped SVG patterns: [halftone.html](https://ricardommatos.github.io/with-ibm-concept/halftone.html)
 
 ## How to use
 
@@ -62,6 +63,10 @@ GPU shader effects:
 
 - **rotate** — *Innovate every angle* — vertex shader port of the [Codrops Rotating Slideshow](https://tympanus.net/Tutorials/RotatingSlideshow/) ([repo](https://github.com/oluwadareseyi/webgl-rotating-image-gallery)): a textured plane that twists around its horizontal axis as drag advances. Each vertex's rotation angle = `dot(distortionAxis, position) * uDistortion`, easing with `qinticInOut`. Texture is a procedural canvas with IBM-blue + white stripes (echoing the IBM logo bars).
 - **droplets** — *Connect every droplet* — fragment shader port of [koji014/interactive-droplets](https://github.com/koji014/interactive-droplets): raymarched SDF metaballs combined via smoothMin, fed a 15-position trail. As drag grows the trail head sweeps right, droplets stretch, smaller balls trail behind, iridescent shimmer from `noise3D(reflectDir + uTime)`.
+
+### halftone
+
+Standalone tool — not part of the v1–v6 drag composition. Upload a photo + a stamp SVG (defaults to a circle); the app rebuilds the photo as a grid of stamped pattern instances sized by per-cell luminance. Sliders for density, stamp size, gamma, min size; toggles for dark/light brightness mapping, stamp colour (white/black) and background (IBM blue/white/black). Export to PNG. The SVG is recoloured client-side via DOMParser before each render. Inspired by the dotted-portrait halftone aesthetic — and patterns sized to IBM-bar-like proportions are fair game.
 
 ## Stack
 
