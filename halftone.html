@@ -257,7 +257,10 @@
         </div>
       </div>
       <hr>
-      <button id="exportPng">Export PNG</button>
+      <div class="row">
+        <button id="exportPng">PNG</button>
+        <button id="exportSvg">SVG</button>
+      </div>
     </div>
 
     <input type="file" id="imageInput" accept="image/*" hidden>
@@ -293,6 +296,7 @@
   const bgWhiteBtn = document.getElementById('bgWhite');
   const bgBlackBtn = document.getElementById('bgBlack');
   const exportBtn = document.getElementById('exportPng');
+  const exportSvgBtn = document.getElementById('exportSvg');
 
   // --- State -----------------------------------------------------------
   // Default pattern: a simple circle. Replaced when user uploads an SVG.
@@ -364,31 +368,24 @@
     });
   };
 
-  const render = () => {
-    // Match output canvas to image aspect, capped to 1080 on longest side
+  // Compute output dimensions from current source image (cached so the SVG
+  // export uses exactly the same coords as the canvas render).
+  const computeOutSize = () => {
     const src = state.sourceImage;
-    let outW = 1080, outH = 1080;
-    if (src) {
-      const ar = src.naturalWidth / src.naturalHeight;
-      if (ar >= 1) { outW = 1080; outH = Math.round(1080 / ar); }
-      else { outH = 1080; outW = Math.round(1080 * ar); }
-    }
-    if (out.width !== outW)  out.width  = outW;
-    if (out.height !== outH) out.height = outH;
+    if (!src) return { w: 1080, h: 1080 };
+    const ar = src.naturalWidth / src.naturalHeight;
+    if (ar >= 1) return { w: 1080, h: Math.round(1080 / ar) };
+    return { w: Math.round(1080 * ar), h: 1080 };
+  };
 
-    // Background
-    ctx.fillStyle = state.background;
-    ctx.fillRect(0, 0, out.width, out.height);
-
-    if (!src || !state.stampImage) {
-      emptyState.classList.toggle('hidden', !!src);
-      return;
-    }
-    emptyState.classList.add('hidden');
-
-    // Sample source image at grid resolution
+  // Walk the cell grid once. Calls cb(cx, cy, size) for each cell whose
+  // resolved stamp size exceeds 0.6 px. Used by both canvas render and SVG
+  // export so they stay in lockstep.
+  const forEachCell = (W, H, cb) => {
+    const src = state.sourceImage;
+    if (!src) return;
     const cellsX = Math.max(4, Math.round(state.density));
-    const cellsY = Math.max(4, Math.round(state.density / (out.width / out.height)));
+    const cellsY = Math.max(4, Math.round(state.density / (W / H)));
     const sample = document.createElement('canvas');
     sample.width = cellsX;
     sample.height = cellsY;
@@ -397,19 +394,14 @@
     sctx.imageSmoothingQuality = 'high';
     sctx.drawImage(src, 0, 0, cellsX, cellsY);
     const data = sctx.getImageData(0, 0, cellsX, cellsY).data;
-
-    const cellW = out.width  / cellsX;
-    const cellH = out.height / cellsY;
+    const cellW = W / cellsX;
+    const cellH = H / cellsY;
     const cellSize = Math.min(cellW, cellH);
-    const stamp = state.stampImage;
-
     for (let j = 0; j < cellsY; j++) {
       for (let i = 0; i < cellsX; i++) {
         const idx = (j * cellsX + i) * 4;
         const r = data[idx], g = data[idx + 1], b = data[idx + 2];
-        // Perceptual luminance (Rec. 709)
         const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-        // Map to factor [0..1] depending on mode + gamma
         let v = state.mapMode === 'dark' ? (1 - lum) : lum;
         v = Math.pow(v, state.gamma);
         v = state.minFactor + (1 - state.minFactor) * v;
@@ -417,9 +409,91 @@
         if (size < 0.6) continue;
         const cx = (i + 0.5) * cellW;
         const cy = (j + 0.5) * cellH;
-        ctx.drawImage(stamp, cx - size / 2, cy - size / 2, size, size);
+        cb(cx, cy, size);
       }
     }
+  };
+
+  const render = () => {
+    const { w: outW, h: outH } = computeOutSize();
+    if (out.width !== outW)  out.width  = outW;
+    if (out.height !== outH) out.height = outH;
+
+    ctx.fillStyle = state.background;
+    ctx.fillRect(0, 0, out.width, out.height);
+
+    if (!state.sourceImage || !state.stampImage) {
+      emptyState.classList.toggle('hidden', !!state.sourceImage);
+      return;
+    }
+    emptyState.classList.add('hidden');
+
+    const stamp = state.stampImage;
+    forEachCell(outW, outH, (cx, cy, size) => {
+      ctx.drawImage(stamp, cx - size / 2, cy - size / 2, size, size);
+    });
+  };
+
+  // --- SVG export ------------------------------------------------------
+  // Build an SVG that mirrors the canvas render: a background <rect>, a
+  // <symbol> containing the (recoloured) user pattern, and one <use> per
+  // cell. Each <use> sets x/y/width/height — no per-cell colour, no
+  // duplication of the path data.
+  const buildExportSvg = () => {
+    const { w, h } = computeOutSize();
+    if (!state.sourceImage || !state.svgText) return null;
+
+    // Parse user's SVG and recolour to current state.color
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(state.svgText, 'image/svg+xml');
+    if (doc.querySelector('parsererror')) return null;
+    const root = doc.documentElement;
+    if (!root.hasAttribute('xmlns')) root.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+    const all = doc.querySelectorAll('*');
+    all.forEach(el => {
+      const f = el.getAttribute('fill');
+      if (f && f.toLowerCase() !== 'none') el.setAttribute('fill', state.color);
+      const s = el.getAttribute('stroke');
+      if (s && s.toLowerCase() !== 'none') el.setAttribute('stroke', state.color);
+    });
+    const anyHasFill = Array.from(all).some(e => {
+      const f = e.getAttribute('fill');
+      return f && f.toLowerCase() !== 'none';
+    });
+    // Determine the source viewBox; fall back to width/height if missing.
+    let vb = root.getAttribute('viewBox');
+    if (!vb) {
+      const wAttr = root.getAttribute('width')  || '100';
+      const hAttr = root.getAttribute('height') || '100';
+      vb = `0 0 ${wAttr} ${hAttr}`;
+    }
+    // Serialise inner content (children of <svg>) to inject into <symbol>.
+    const serializer = new XMLSerializer();
+    const inner = Array.from(root.childNodes)
+      .map(n => serializer.serializeToString(n))
+      .join('');
+
+    // Collect <use> tags from the cell walk.
+    const uses = [];
+    forEachCell(w, h, (cx, cy, size) => {
+      const x = (cx - size / 2).toFixed(2);
+      const y = (cy - size / 2).toFixed(2);
+      const s = size.toFixed(2);
+      uses.push(`<use href="#stamp" x="${x}" y="${y}" width="${s}" height="${s}"/>`);
+    });
+
+    // If nothing in the source SVG declared a fill, set it on <symbol>'s
+    // wrapper <g> so <use> instances inherit colour cleanly.
+    const fillWrap = anyHasFill ? '' : ` fill="${state.color}"`;
+
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}">
+  <rect width="100%" height="100%" fill="${state.background}"/>
+  <defs>
+    <symbol id="stamp" viewBox="${vb}" overflow="visible"><g${fillWrap}>${inner}</g></symbol>
+  </defs>
+  ${uses.join('\n  ')}
+</svg>`;
   };
 
   // --- File loaders ----------------------------------------------------
@@ -517,6 +591,21 @@
       a.click();
       setTimeout(() => URL.revokeObjectURL(url), 0);
     }, 'image/png');
+  });
+
+  exportSvgBtn.addEventListener('click', () => {
+    const svg = buildExportSvg();
+    if (!svg) {
+      alert('Upload an image first.');
+      return;
+    }
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'with-ibm-halftone.svg';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   });
 
   // --- Boot ------------------------------------------------------------
